@@ -202,7 +202,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 /* ================= хранилище: облако Telegram (≤4096 символов на ключ), иначе память браузера ================= */
 const TG = window.Telegram && window.Telegram.WebApp;
-const APP_V = '12.11g';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
+const APP_V = '12.11j';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
 const CS = TG && TG.CloudStorage && TG.isVersionAtLeast && TG.isVersionAtLeast('6.9') ? TG.CloudStorage : null;
 const PART = 4000;
 const K_EX='exlib', K_TPL='tpls', K_DAYS='days', K_DRAFT='draft3';   // ключи v3 (старые ex/tpl/idx/cur от v1–v2 не трогаем)
@@ -1248,6 +1248,7 @@ function rcWaist() {
   if (m.length < 2) return {n: m.length};
   const a = m[0], b = m[m.length - 1]; return {n: m.length, delta: b[1] - a[1], days: (Date.parse(b[0]) - Date.parse(a[0])) / 864e5};
 }
+function eatenOf(d) { const r = dayRows(d); if (r.length) return sumRows(r).k; return CFG.eatGoal && d >= (CFG.eatGoalFrom || '2000-01-01') ? target(d).kcal : null; }  // ем ровно в цель (считаю в другом приложении)
 function rcTrend(L) {
   const t = today(), t0 = Date.parse(t) - 28 * 864e5, ws = wSorted().filter(x => Date.parse(x[0]) >= t0);
   if (ws.length < 4) return null;
@@ -1255,7 +1256,7 @@ function rcTrend(L) {
   if (xs[n - 1] - xs[0] < 10) return null;
   const mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n;
   const sl = xs.reduce((a, x, i) => a + (x - mx) * (ys[i] - my), 0) / xs.reduce((a, x) => a + (x - mx) ** 2, 0);
-  const eat = [], mt = []; for (let i = 1; i <= 28; i++) { const d = dAdd(t, -i), r = dayRows(d); if (r.length) { eat.push(sumRows(r).k); mt.push(maint(d)); } }
+  const eat = [], mt = []; for (let i = 1; i <= 28; i++) { const d = dAdd(t, -i), k = eatenOf(d); if (k != null) { eat.push(k); mt.push(maint(d)); } }
   const eatAvg = eat.length >= 7 ? eat.reduce((a, b) => a + b, 0) / eat.length : null;
   return {perWk: sl * 7, days: Math.round(xs[n - 1] - xs[0]), eatAvg, realTdee: eatAvg != null ? eatAvg - sl * 7700 + 5900 * (L || 0) / 7 : null, modelTdee: mt.length ? mt.reduce((a, b) => a + b, 0) / mt.length : null};
 }
@@ -1296,18 +1297,26 @@ let RCW = null;  // «а что если»: {kcal, steps, st} — только �
 function recompCardA() {
   const t = today(), ws = wSorted(), last = ws[ws.length - 1];
   const str = rcStrength(), wa = rcWaist();
-  const eat7 = []; for (let i = 1; i <= 7; i++) { const r = dayRows(dAdd(t, -i)); if (r.length) eat7.push(sumRows(r).k); }
-  const kcal = eat7.length >= 3 ? eat7.reduce((a, b) => a + b, 0) / eat7.length : CFG.kcal;
-  const days28 = IDX.filter(d => Date.parse(d) >= Date.parse(t) - 28 * 864e5 && (LOG[d].ex || []).some(x => setsOf(x).length)).length, perWk = days28 / 4;
+  const eat7 = []; for (let i = 1; i <= 7; i++) { const k = eatenOf(dAdd(t, -i)); if (k != null) eat7.push(k); }
+  const OV = CFG.rc || {}, kcalAuto = eat7.length >= 3 ? eat7.reduce((a, b) => a + b, 0) / eat7.length : CFG.kcal, kcal = OV.kcal != null ? OV.kcal : kcalAuto;
+  const days28 = IDX.filter(d => Date.parse(d) >= Date.parse(t) - 28 * 864e5 && (LOG[d].ex || []).some(x => setsOf(x).length)).length, stAuto = days28 / 4, perWk = OV.st != null ? OV.st : stAuto;
   const sF = !str || str.sig == null ? 0.5 : (str.sig > 0 ? 1 : (str.sig === 0 ? 0.4 : 0));
   const lean = (def, pw) => RC_LEAN_BASE * (pw >= 2 ? 1 : (pw >= 1 ? 0.6 : 0)) * sF * (def <= 300 ? 1 : (def <= 600 ? 0.6 : 0.3));
   const tr0 = rcTrend(0), L0 = lean(tr0 && tr0.realTdee ? tr0.realTdee - kcal : CFG.tdee - kcal, perWk), tr = rcTrend(L0);
   const m7 = []; for (let i = 0; i < 7; i++) m7.push(maint(dAdd(t, -i)));
-  const tdee = tr && tr.realTdee ? Math.max(tr.modelTdee - 500, Math.min(tr.modelTdee + 500, tr.realTdee)) : m7.reduce((a, b) => a + b, 0) / 7;
+  const st7 = []; for (let i = 1; i <= 7; i++) { const v = stepsOf(dAdd(t, -i)); if (v != null) st7.push(v); }
+  const stepsAuto = st7.length ? Math.round(st7.reduce((a, b) => a + b, 0) / st7.length / 100) * 100 : CFG.stepsBase, steps = OV.steps != null ? OV.steps : stepsAuto;
+  // автосброс уточнений: через 28 дней или раньше, если записанные данные догнали
+  if (OV.at && Object.keys(OV).some(k => k !== 'at')) { const auto = {kcal: kcalAuto, steps: stepsAuto, st: stAuto};
+    const caught = Object.keys(OV).filter(k => k !== 'at').every(k => k === 'st' ? auto.st >= OV.st - 0.25 : Math.abs(auto[k] - OV[k]) <= OV[k] * 0.1);
+    const expired = (Date.parse(t) - Date.parse(OV.at)) / 864e5 >= 28;
+    if (expired || caught) { const prev = Object.assign({}, OV); delete prev.at;
+      CFG.rcLast = {at: OV.at, cleared: t, why: caught ? 'caught' : 'expired', prev, actual: {kcal: Math.round(kcalAuto), steps: stepsAuto, st: stAuto}};
+      CFG.rc = {}; setJ('cfg', CFG); return recompCardA(); } }
+  const Wn = (wSorted().length ? avg7(wSorted()[wSorted().length - 1][0]) : 60) || 60;
+  const tdee = (tr && tr.realTdee ? Math.max(tr.modelTdee - 500, Math.min(tr.modelTdee + 500, tr.realTdee)) : m7.reduce((a, b) => a + b, 0) / 7) + (steps - stepsAuto) * 0.035 * Wn / 83 + (perWk - stAuto) * 2.5 * Wn * 0.75 / 7;
   const def = tdee - kcal, L = lean(def, perWk), w0 = last ? avg7(last[0]) : null;
   const goal = CFG.goalW != null ? CFG.goalW : (w0 != null ? Math.round((w0 - 2) * 2) / 2 : null);
-  const st7 = []; for (let i = 1; i <= 7; i++) { const v = stepsOf(dAdd(t, -i)); if (v != null) st7.push(v); }
-  const steps = st7.length ? Math.round(st7.reduce((a, b) => a + b, 0) / st7.length / 100) * 100 : CFG.stepsBase;
   // вердикт
   const wS = tr ? tr.perWk : null, wD = wS == null ? null : (wS < -0.07 ? -1 : (wS > 0.07 ? 1 : 0));
   const waD = wa.delta == null || wa.days < 10 ? null : (wa.delta <= -1 ? -1 : (wa.delta >= 1 ? 1 : 0)), sD = str ? str.sig : null;
@@ -1334,7 +1343,15 @@ function recompCardA() {
     + '<div class="sub" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:12px"><span>⚖️ вес ' + ar(wD) + (wS != null ? ' ' + (wS > 0 ? '+' : '') + n2(wS) + '/нед' : '') + '</span><span>📏 талия ' + ar(waD) + (wa.delta != null ? ' ' + (wa.delta > 0 ? '+' : '') + n1(wa.delta) + ' см' : '') + '</span><span>🏋️ сила ' + ar(sD) + (str && str.sig != null ? ' ' + str.up + '↑/' + str.dn + '↓' : '') + '</span></div>'
     + (wa.n < 2 ? '<div class="sub" style="margin-top:4px">Для точности нужны замеры талии раз в неделю — вкладка 📏 Замеры.</div>' : '')
     + '<div style="border-top:1px dashed var(--line);margin:10px 0 8px"></div>'
-    + '<div class="sub">Считается сам: если дальше как последние недели — ешь ≈ <b>' + fmtN(Math.round(kcal)) + '</b> ккал, ≈ <b>' + fmtN(steps) + '</b> шагов в день, силовых <b>' + n1(perWk) + '</b> в неделю. Расход ≈ <b>' + fmtN(Math.round(tdee / 10) * 10) + '</b>' + (tr && tr.realTdee ? ' (подстроен под твой реальный вес)' : '') + '.</div>'
+    + '<div class="sub">' + (OV.kcal != null || OV.st != null || OV.steps != null ? 'Считается с твоими уточнениями' : 'Считается сам') + ': ешь ≈ <b>' + fmtN(Math.round(kcal)) + '</b> ккал' + (OV.kcal != null ? ' ✏️' : (CFG.eatGoal ? ' 🎯 в цель' : '')) + ', ≈ <b>' + fmtN(steps) + '</b> шагов в день' + (OV.steps != null ? ' ✏️' : '') + ', силовых <b>' + n1(perWk) + '</b> в неделю' + (OV.st != null ? ' ✏️' : '') + '. Расход ≈ <b>' + fmtN(Math.round(tdee / 10) * 10) + '</b>' + (tr && tr.realTdee ? ' (подстроен под твой реальный вес)' : '') + '.</div>'
+    + (CFG.rcLast && (Date.parse(t) - Date.parse(CFG.rcLast.cleared)) / 864e5 < 7 ? (() => { const L = CFG.rcLast, nm = {kcal: ['калорий', v => fmtN(v)], steps: ['шагов', v => fmtN(v)], st: ['силовых в неделю', v => n1(v)]};
+        return '<div class="sub" style="margin-top:6px;padding:8px;border:1px dashed var(--line);border-radius:10px">🔄 Уточнение от ' + esc(dmy(L.at)) + ' снято ' + esc(dmy(L.cleared)) + (L.why === 'caught' ? ' — записанные данные догнали' : ' — прошло 4 недели') + '. Теперь считаю по записям: ' + Object.keys(L.prev).map(k => nm[k][0] + ' было ' + nm[k][1](L.prev[k]) + ' → по записям ' + nm[k][1](L.actual[k])).join(', ') + '.</div>'; })() : '')
+    + (OV.at ? '<div class="sub" style="margin-top:4px">✏️ Уточнения действуют до <b>' + esc(dmy(dAdd(OV.at, 28))) + '</b> или пока записи их не догонят — потом сброс сам.</div>' : '')
+    + '<details id="rc-ov" style="margin-top:4px"' + (pref.get('rcov', '0') === '1' ? ' open' : '') + '><summary class="sub"><b>✏️ Уточнить мои данные</b> — если цифры выше не про тебя</summary>'
+    + '<div class="sub" style="margin:6px 0">Приложение считает по тому, что записано за последние недели. Если что-то записано не всё (например, тренировки до приложения или еда не каждый день) — впиши как на самом деле. Пусто = считать само. Действует 4 недели (или пока записи не догонят) — потом сбросится само, и прогноз пересчитается по тому, что было на самом деле.</div>'
+    + [['kcal', 'Калорий в день в среднем', fmtN(Math.round(kcalAuto))], ['steps', 'Шагов в день в среднем', fmtN(stepsAuto)], ['st', 'Силовых в неделю', n1(stAuto)]].map(([k, l, a]) => '<label class="lbl">' + l + ' <span class="sub">(само: ' + a + ')</span></label><input data-rov="' + k + '" inputmode="decimal" placeholder="авто — ' + a + '" value="' + (OV[k] != null ? String(OV[k]).replace('.', ',') : '') + '">').join('')
+    + '<label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px;font-size:14px"><input type="checkbox" id="eatgoal"' + (CFG.eatGoal ? ' checked' : '') + ' style="width:20px;height:20px;flex:none;margin-top:1px"> <span>🎯 Ем ровно в цель — считаю в другом приложении<br><span class="sub">Дни без записей еды будут считаться как «съедено = цель дня». Тогда работает и подгонка прогноза под реальный вес. Запишешь еду в AllinA — возьмётся записанное.</span></span></label>'
+    + '<div class="g2" style="margin-top:6px"><button class="pri" data-rovs="1">Сохранить</button><button data-rovr="1">Сбросить на авто</button></div></details>'
     + (goal != null ? '<div class="row" style="margin-top:6px;align-items:center"><span>🎯 Цель по весу</span><span style="display:flex;gap:10px;align-items:center"><button data-rg="-0.5" style="padding:4px 14px">−</button><b>' + n1(goal) + ' кг</b><button data-rg="0.5" style="padding:4px 14px">+</button></span></div>' : '')
     + rcBlock(def, L, w0, goal, false)
     + '<details id="rc-what"' + (open ? ' open' : '') + ' style="margin-top:10px"><summary><b>🔧 А что если…</b> <span class="sub">— поменять еду, шаги, тренировки</span></summary>'
@@ -1351,6 +1368,11 @@ document.addEventListener('click', async e => {
   const rg = e.target.closest('[data-rg]'); if (rg) { const ws = wSorted(), w0 = ws.length ? avg7(ws[ws.length - 1][0]) : 60, cur = CFG.goalW != null ? CFG.goalW : Math.round((w0 - 2) * 2) / 2;
     CFG.goalW = Math.max(40, Math.min(120, Math.round((cur + Number(rg.dataset.rg)) * 2) / 2)); await setJ('cfg', CFG); hap(); render(); return; }
   if (e.target.closest('[data-rwr]')) { RCW = null; pref.set('rwhat', 'null'); hap(); render(); return; }
+  if (e.target.closest('[data-rovs]')) { const o = {}; let bad = false;
+    document.querySelectorAll('[data-rov]').forEach(i => { const v = rnum(i.value); if (i.value.trim() === '') return; const k = i.dataset.rov, lim = {kcal: [800, 5000], steps: [0, 60000], st: [0, 14]}[k];
+      if (v == null || v < lim[0] || v > lim[1]) bad = true; else o[k] = v; });
+    if (bad) return toast('Проверь цифры'); if (Object.keys(o).length) o.at = today(); CFG.rc = o; CFG.rcLast = null; const eg = $('eatgoal') && $('eatgoal').checked; if (eg && !CFG.eatGoal) CFG.eatGoalFrom = dAdd(today(), -28); CFG.eatGoal = !!eg; await setJ('cfg', CFG); hap('ok'); render(); toast(Object.keys(o).length ? 'Учту твои цифры в прогнозе' : 'Считаю само'); return; }
+  if (e.target.closest('[data-rovr]')) { CFG.rc = {}; await setJ('cfg', CFG); hap(); render(); toast('Считаю само'); return; }
   const b = e.target.closest('[data-bx="msave"],[data-bx="mdel"]'); if (!b) return;
   if (b.dataset.bx === 'msave') { const w = rnum($('m-w').value), h = rnum($('m-h').value);
     if (w == null && h == null) return toast('Впиши талию или бёдра'); if ((w != null && !(w > 40 && w < 200)) || (h != null && !(h > 50 && h < 200))) return toast('Проверь сантиметры');
@@ -1360,7 +1382,7 @@ document.addEventListener('click', async e => {
 document.addEventListener('change', e => { if (TAB === 'body' && e.target.id === 'm-d' && e.target.value) { mDay = e.target.value; render(); } if (TAB === 'body' && e.target.dataset && e.target.dataset.rw) { const y = window.scrollY; render(); window.scrollTo(0, y); } });
 document.addEventListener('input', e => { const k = TAB === 'body' && e.target.dataset && e.target.dataset.rw; if (!k) return; RCW = Object.assign({}, RCW || {}, {[k]: Number(e.target.value)}); pref.set('rwhat', JSON.stringify(RCW));
   const el = $('rw-' + k); if (el) el.textContent = (k === 'st' ? n1(RCW[k]) : fmtN(RCW[k])) + (k === 'kcal' ? ' ккал' : ''); });
-document.addEventListener('toggle', e => { if (e.target.id === 'rc-what') pref.set('rwopen', e.target.open ? '1' : '0'); }, true);
+document.addEventListener('toggle', e => { if (e.target.id === 'rc-what') pref.set('rwopen', e.target.open ? '1' : '0'); if (e.target.id === 'rc-ov') pref.set('rcov', e.target.open ? '1' : '0'); }, true);
 
 /* ================= 📦 резервная копия всего приложения ================= */
 async function restoreAll(o){
