@@ -202,6 +202,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 /* ================= хранилище: облако Telegram (≤4096 символов на ключ), иначе память браузера ================= */
 const TG = window.Telegram && window.Telegram.WebApp;
+const APP_V = '12.11b';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
 const CS = TG && TG.CloudStorage && TG.isVersionAtLeast && TG.isVersionAtLeast('6.9') ? TG.CloudStorage : null;
 const PART = 4000;
 const K_EX='exlib', K_TPL='tpls', K_DAYS='days', K_DRAFT='draft3';   // ключи v3 (старые ex/tpl/idx/cur от v1–v2 не трогаем)
@@ -383,7 +384,7 @@ async function load(){
       let addEx=false; (S.ex||[]).forEach(e=>{ if(!exInfo(e.n)){ EX.push(e); addEx=true; } }); if(addEx) await setJ(K_EX,EX);
       let nAdd=0; for(const w of S.log){ if(LOG[w.d]) continue; await setJ(keyOf(w.d), w); LOG[w.d]=w; IDX.push(w.d); nAdd++; }
       IDX.sort(); await setJ(K_DAYS, IDX); await rawSet('seeded1','1'); SEEDED=nAdd; } }catch(e){ console.error('seed', e); } }
-  $('store').textContent = CS ? '☁︎ облако' : '⚠︎ браузер';
+  $('store').textContent = (CS ? '☁︎ облако' : '⚠︎ браузер') + ' · v' + APP_V;
 }
 // история зашифрована: ключ = PBKDF2(её Telegram ID). Не её аккаунт → не расшифруется, перенос отмечается сделанным и больше не пробуется.
 async function seedOpen(txt){
