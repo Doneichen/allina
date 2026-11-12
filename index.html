@@ -728,11 +728,13 @@ function dayRows(d) { const w = FW[monKey(d)]; return (w && w[d]) || []; }
 async function saveDay(d, rows) { const k = monKey(d), w = await weekOf(d); if (rows.length) w[d] = rows; else delete w[d]; await setJ(k, w); }
 const sumRows = rows => rows.reduce((a, x) => ({k: a.k + x.k, p: a.p + x.p, f: a.f + x.f, c: a.c + x.c, fib: a.fib + (x.fib || 0)}), {k: 0, p: 0, f: 0, c: 0, fib: 0});
 function target(d) {  // цель дня с учётом шагов (как у Данича: ± ккал на 1000 шагов, разница — в углеводы)
-  const s = ST[d], adj = s != null ? Math.round((s - CFG.stepsBase) / 1000 * CFG.perK / 10) * 10 : 0;
+  const s = stepsOf(d), adj = s != null ? Math.round((s - CFG.stepsBase) / 1000 * CFG.perK / 10) * 10 : 0;
   const kcal = Math.max(1200, CFG.kcal + adj), c = Math.max(0, Math.round((kcal - CFG.p * 4 - CFG.f * 9) / 4));
   return {kcal, p: CFG.p, f: CFG.f, c, adj};
 }
-function maint(d) { const s = ST[d]; return CFG.tdee + (s != null ? (s - CFG.stepsBase) / 1000 * CFG.perK : 0); }
+function tmSteps(d) { const w = (typeof LOG !== 'undefined' && LOG[d]) || null; return ((w && w.cardio) || []).reduce((a, x) => a + (x.sep && !x.watch ? parseInt(x.steps) || 0 : 0), 0); }
+function stepsOf(d) { const ph = ST[d], m = tmSteps(d); return ph == null && !m ? null : (ph || 0) + m; }
+function maint(d) { const s = stepsOf(d); return CFG.tdee + (s != null ? (s - CFG.stepsBase) / 1000 * CFG.perK : 0); }
 function dayStatus(d) { const rows = dayRows(d); if (!rows.length) return 'none'; const k = sumRows(rows).k, t = target(d).kcal; return k <= t + CFG.tol ? 'ok' : 'over'; }
 function streak() {  // дни подряд в пределах цели (+допуск); сегодня считается, если уже в пределах
   let cur = 0, d = today(); const st0 = dayStatus(d);
@@ -835,10 +837,10 @@ function wChart2(sel) {
 function stepsChart2(sel) {
   const days = []; for (let i = 29; i >= 0; i--) days.push(dAdd(today(), -i));
   const W = 520, H = 160, pd = 30, n = days.length, bw = (W - pd - 4) / n, base = CFG.stepsBase;
-  const mx = Math.max(base * 1.6, 8000, ...days.map(d => ST[d] || 0)) * 1.08, Y = v => 8 + (1 - v / mx) * (H - 30);
+  const mx = Math.max(base * 1.6, 8000, ...days.map(d => stepsOf(d) || 0)) * 1.08, Y = v => 8 + (1 - v / mx) * (H - 30);
   let g = ''; const st = mx > 20000 ? 10000 : 5000;
   for (let k = 0; k <= mx; k += st) g += '<line x1="' + pd + '" x2="' + W + '" y1="' + Y(k).toFixed(1) + '" y2="' + Y(k).toFixed(1) + '" style="stroke:var(--line)"/><text x="0" y="' + (Y(k) + 4).toFixed(1) + '" font-size="11" style="fill:var(--hint)">' + (k / 1000) + 'k</text>';
-  const bars = days.map((d, i) => { const X = pd + i * bw + 1.5, w = bw - 3, v = ST[d], c = v == null ? 'var(--line)' : (v >= base ? 'var(--ok)' : (v >= base * 0.8 ? 'var(--warn)' : 'var(--bad)'));
+  const bars = days.map((d, i) => { const X = pd + i * bw + 1.5, w = bw - 3, v = stepsOf(d), c = v == null ? 'var(--line)' : (v >= base ? 'var(--ok)' : (v >= base * 0.8 ? 'var(--warn)' : 'var(--bad)'));
     return '<rect x="' + X.toFixed(1) + '" y="' + (v == null ? H - 24 : Y(v)).toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + (v == null ? 2 : Math.max(2, H - 22 - Y(v))).toFixed(1) + '" rx="2" style="fill:' + c + '" opacity="' + (d === sel ? 1 : 0.6) + '"/>'
       + (d === sel ? '<rect x="' + (X - 1.5).toFixed(1) + '" y="4" width="' + bw.toFixed(1) + '" height="' + (H - 24) + '" rx="3" fill="none" style="stroke:var(--acc)" stroke-width="1.6"/>' : '')
       + '<rect data-bx="spick" data-a="' + d + '" x="' + (X - 1.5).toFixed(1) + '" y="0" width="' + bw.toFixed(1) + '" height="' + (H - 18) + '" fill="transparent"/>'; }).join('');
@@ -860,10 +862,11 @@ function renderBody() {
     + wChart2(wv ? wDay : null)
     + (ws.length > 1 ? '<div class="sub">Точки — замеры, линия — среднее за 7 дней. Тап по точке — тот день.</div>' : '')
     + (wk.n ? '<div class="row" style="margin-top:8px"><span>Неделя с ' + esc(dmy(monOf(t))) + '</span><b class="' + (wk.def >= 0 ? 'ok' : 'bad') + '">' + (wk.def >= 0 ? 'дефицит ' : 'профицит ') + fmtN(Math.abs(wk.def)) + ' ккал</b></div>' : '') + '</div>';
-  const sv = ST[sDay], base = CFG.stepsBase, avgN = n => { const v = []; for (let i = 0; i < n; i++) { const x = ST[dAdd(t, -i)]; if (x != null) v.push(x); } return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null; };
+  const ph = ST[sDay], tm = tmSteps(sDay), sv = stepsOf(sDay), base = CFG.stepsBase, avgN = n => { const v = []; for (let i = 0; i < n; i++) { const x = stepsOf(dAdd(t, -i)); if (x != null) v.push(x); } return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null; };
   const a7 = avgN(7), a30 = avgN(30);
   h += '<div class="card"><h2>👟 Шаги · 30 дней</h2>' + dnav2('s', sDay, 'база ' + fmtN(base), sDay < t)
-    + '<div class="g2"><input id="b-s" inputmode="numeric" placeholder="шаги за день" value="' + (sv != null ? sv : '') + '"><button class="pri" data-bx="ssave">' + (sv != null ? 'Исправить' : 'Записать') + '</button></div>'
+    + '<div class="g2"><input id="b-s" inputmode="numeric" placeholder="шаги с телефона" value="' + (ph != null ? ph : '') + '"><button class="pri" data-bx="ssave">' + (ph != null ? 'Исправить' : 'Записать') + '</button></div>'
+    + (tm ? '<div class="sub" style="margin-top:6px">📱 телефон ' + (ph != null ? fmtN(ph) : '—') + ' + 🏃 дорожка ' + fmtN(tm) + ' = <b>' + fmtN(sv) + '</b>. Дорожка прибавляется сама — в поле вписывай только то, что показывает телефон.</div>' : '')
     + '<div class="row" style="margin-top:6px"><span><b>' + (sv != null ? fmtN(sv) : '—') + '</b> / ' + fmtN(base) + '</span><span>' + (sv == null ? '<span class="sub">не записаны</span>' : (sv >= base ? '<span class="ok">база есть</span>' : '<span class="warn">до базы ' + fmtN(base - sv) + '</span>')) + '</span></div>'
     + (sv != null ? '<div class="sub">Цель дня с этими шагами: <b>' + target(sDay).kcal + ' ккал</b></div>' : '')
     + stepsChart2(sDay)
@@ -1125,7 +1128,8 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) cdTi
 const modeSeg = () => '<div class="seg" style="grid-template-columns:1fr 1fr;margin:0 0 12px"><button data-gm="str" class="' + (gmode === 'str' ? 'on' : '') + '">💪 Силовая</button><button data-gm="cardio" class="' + (gmode === 'cardio' ? 'on' : '') + '">🏃 Кардио</button></div>';
 function cdCalc(c) {
   const nums = x => (String(x || '').replace(/,/g, '.').match(/\d+(?:\.\d+)?/g) || []).map(Number);
-  const dist = nums(c.dist)[0] || 0; if (!(dist > 0 && dist < 60)) return null;
+  let dist = nums(c.dist)[0] || 0; if (dist >= 60 && dist < 60000) dist = dist / 1000;  // ввели в метрах
+  if (!(dist > 0 && dist < 60)) return null;
   const lw = WT.length ? WT.slice().sort((a, b) => a[0] < b[0] ? -1 : 1)[WT.length - 1][1] : null;
   const W = +lw || 65, H = +(CFG && CFG.height) || 165, mins = cdMins(c), sp = nums(c.speed).filter(v => v > 0 && v < 25);
   let v = sp.length ? sp.reduce((a, b) => a + b, 0) / sp.length : (mins > 0 ? dist / (mins / 60) : 5);
@@ -1134,12 +1138,12 @@ function cdCalc(c) {
   const steps = Math.round(dist * 1000 / stride / 10) * 10;
   const vo2 = (v < 8 ? 0.1 : 0.2) * (v * 1000 / 60) + 3.5;  // ACSM, мл/кг/мин
   const min = mins > 0 ? mins : dist / v * 60;
-  return {steps, kcal: Math.round(vo2 * W * min / 1000 * 5), v: Math.round(v * 10) / 10, H, W, wKnown: lw != null};
+  return {steps, kcal: Math.round(vo2 * W * min / 1000 * 5), v: Math.round(v * 10) / 10, H, W, wKnown: lw != null, km: Math.round(dist * 100) / 100};
 }
 function cdCalcTxt(c) { const r = cdCalc(c); if (!r) return 'Введи дистанцию с экрана дорожки — шаги и калории посчитаются сами.';
   return '≈ <b style="color:var(--tx)">' + fmtN(r.steps) + '</b> шагов · ≈ <b style="color:var(--tx)">' + r.kcal + '</b> ккал'
     + ' <span style="opacity:.7">(рост ' + r.H + ' см, ' + (r.wKnown ? n1(r.W) + ' кг' : 'вес не записан — взяла 65 кг') + ', ~' + n1(r.v) + ' км/ч)</span>'
-    + (c.watch ? '<br>📱 Телефон или часы уже посчитали шаги — второй раз не прибавлю.' : '<br>➕ При сохранении шаги прибавятся к шагам дня, и цель по калориям подрастёт сама. Калории отдельно не прибавляю, чтобы не задвоить.'); }
+    + (c.watch ? '<br>📱 Телефон или часы уже посчитали шаги — второй раз не прибавлю.' : '<br>➕ После сохранения шаги дорожки прибавятся к шагам дня отдельно от телефона, цель по калориям подрастёт сама. Калории отдельно не прибавляю, чтобы не задвоить.'); }
 function cardioView() {
   const c = cdGet(), left = cdLeft(c), mins = cdMins(c);
   const st = c.phase === 'work' ? (c.startAt ? 'идёт' : 'пауза') : c.phase === 'rest' ? (c.startAt ? 'отдых мотора' : 'пауза отдыха') : c.phase === 'done' ? 'готово — дай дорожке 10 минут' : c.phase === 'restdone' ? 'мотор отдохнул — можно ещё круг' : 'не начато';
@@ -1153,7 +1157,7 @@ function cardioView() {
     + '<div style="text-align:center;margin:12px 0 6px"><div id="cd-time" style="font-size:56px;font-weight:700;color:var(--acc);font-variant-numeric:tabular-nums">' + big + '</div><div class="sub">' + st + (c.rounds.length ? ' · кругов: ' + c.rounds.length : '') + '</div></div>'
     + '<div class="g2">' + btns + '</div>'
     + '<div class="sub" style="margin-top:8px">Звук и вибро в конце — если приложение открыто на экране. Если экран погаснет или свернёшь Telegram, iPhone усыпит страницу: время досчитается, когда вернёшься, но звонок будет уже тогда.</div></div>'
-    + '<div class="card"><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px"><input data-cf="speed" inputmode="decimal" placeholder="км/ч" value="' + esc(c.speed) + '"><input data-cf="dist" inputmode="decimal" placeholder="км" value="' + esc(c.dist) + '"><input data-cf="steps" inputmode="numeric" placeholder="шаги (авто)" value="' + esc(c.steps) + '"></div>'
+    + '<div class="card"><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px"><input data-cf="speed" inputmode="decimal" placeholder="км/ч" value="' + esc(c.speed) + '"><input data-cf="dist" inputmode="decimal" placeholder="км или м" value="' + esc(c.dist) + '"><input data-cf="steps" inputmode="numeric" placeholder="шаги (авто)" value="' + esc(c.steps) + '"></div>'
     + '<label style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:14px"><input type="checkbox" data-cf="watch"' + (c.watch ? ' checked' : '') + ' style="width:20px;height:20px;flex:none"> 📱 телефон/часы уже посчитали эти шаги</label>'
     + '<div class="sub" id="cd-calc" style="margin-top:6px">' + cdCalcTxt(c) + '</div>'
     + '<input data-cf="note" style="margin-top:6px" placeholder="заметка: самочувствие, наклон…" value="' + esc(c.note) + '">'
@@ -1163,13 +1167,12 @@ function cardioView() {
 async function cdSave() {
   const c = cdGet(), d = today(), mins = cdMins(c);
   const r = cdCalc(c), own = String(c.steps || '').trim();
-  const item = {name: CDN, min: mins, speed: String(c.speed || '').trim(), dist: String(c.dist || '').trim(), steps: own || (r ? String(r.steps) : ''), note: String(c.note || '').trim()};
-  if (r) item.kcal = r.kcal; if (!own && r) item.auto = 1; item.watch = c.watch ? 1 : 0;
+  const item = {name: CDN, min: mins, speed: String(c.speed || '').trim(), dist: r ? String(r.km).replace('.', ',') : String(c.dist || '').trim(), steps: own || (r ? String(r.steps) : ''), note: String(c.note || '').trim()};
+  if (r) item.kcal = r.kcal; if (!own && r) item.auto = 1; item.watch = c.watch ? 1 : 0; item.sep = 1;
   const addSt = !c.watch ? parseInt(item.steps) || 0 : 0;
   const w = LOG[d] ? Object.assign({}, LOG[d]) : {d, tpl: 'Кардио', min: '', rpe: '', note: '', wu: {}, ex: []};
   w.cardio = (w.cardio || []).concat([item]);
   try { await setJ(keyOf(d), w); LOG[d] = w; if (!IDX.includes(d)) { IDX.push(d); IDX.sort(); } await setJ(K_DAYS, IDX); } catch (e) { return toast('Не сохранилось: ' + (e && e.message || e), 4000); }
-  if (addSt > 0) { ST[d] = (ST[d] || 0) + addSt; try { await setJ('steps', ST); } catch (e) {} }
   pref.set('cardio', JSON.stringify(cdNew())); cdWake(false); hap('ok'); gv = 'cal'; pref.set('gv', gv); gSel = d; gMonth = d.slice(0, 7); renderGym(); window.scrollTo(0, 0);
   toast('🏃 Кардио сохранено' + (mins ? ': ' + mins + ' мин' : '') + (addSt > 0 ? ' · +' + fmtN(addSt) + ' шагов к дню → цель ' + target(d).kcal + ' ккал' : ''), 4000);
 }
