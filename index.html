@@ -183,7 +183,7 @@ textarea{min-height:70px;resize:vertical}
 </style>
 </head>
 <body>
-<header><div class="brand"><b>AllinA</b><span>твой дневник</span><div class="sp"></div><span id="store" class="sub"></span><button id="thbtn" aria-label="тема">🎨</button></div><div class="thm" id="thm"></div><div id="tabs"></div></header>
+<header><div class="brand"><b>AllinA</b><span>твой дневник</span><div class="sp"></div><span id="store" class="sub"></span><button id="thbtn" aria-label="тема">🎨</button></div><div class="thm" id="thm"></div><div id="tabs"></div><div id="bkbar" style="display:none"></div></header>
 <main id="app"><div class="card sub">Загрузка…</div></main>
 <div id="timer"><span>Отдых</span><b id="tsec">0:00</b><div class="sp"></div><button id="tplus">+30 с</button><button id="tstop">✕</button></div>
 <div class="toast" id="toast"></div>
@@ -202,7 +202,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 /* ================= хранилище: облако Telegram (≤4096 символов на ключ), иначе память браузера ================= */
 const TG = window.Telegram && window.Telegram.WebApp;
-const APP_V = '12.11e';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
+const APP_V = '12.11f';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
 const CS = TG && TG.CloudStorage && TG.isVersionAtLeast && TG.isVersionAtLeast('6.9') ? TG.CloudStorage : null;
 const PART = 4000;
 const K_EX='exlib', K_TPL='tpls', K_DAYS='days', K_DRAFT='draft3';   // ключи v3 (старые ex/tpl/idx/cur от v1–v2 не трогаем)
@@ -378,6 +378,9 @@ async function load(){
   IDX = IDX.filter(d=>LOG[d]).sort();
   // разовый перенос прошлых тренировок (вшиты в файл) — только если у неё ещё пусто
   await loadFood();
+  try{ BK_AT=(await rawGet(['bk_at'])).bk_at||''; }catch(e){}
+  try{ SNAPS=await getJ('snaps',[]); if(!Array.isArray(SNAPS)) SNAPS=[]; }catch(e){}
+  setTimeout(autoSnap, 1500);
   { try{ const done=(await rawGet(['seeded1'])).seeded1; const el=$('seed');
     const S = (!done && el) ? await seedOpen(el.textContent) : null;
     if(S){ $('app').innerHTML='<div class="card sub">Переношу прошлые тренировки: '+S.log.length+'…</div>';
@@ -646,7 +649,9 @@ function gymKb(){
   }
   KB_SECTIONS.forEach((s,i)=>{ if(kbv==='s'+i) h+='<h3>'+esc(s.title)+'</h3><ul class="kbl">'+s.items.map(r=>'<li>'+esc(r)+'</li>').join('')+'</ul>'; });
   if(kbv==='tpl') h+=tplView();
-  if(kbv==='bk') h+='<h3>Резервная копия</h3><div class="sub">Все тренировки, шаблоны и упражнения одним текстом. Скопируй и сохрани себе в «Избранное».</div><div class="smb" style="margin-top:8px"><button class="pri" id="exp" style="color:#fff">Скопировать данные</button><button id="impo">Восстановить…</button></div><div id="impbox"></div>';
+  if(kbv==='bk') h+='<h3>Резервная копия</h3><div class="sub">Всё приложение одним текстом: тренировки, шаблоны, упражнения, цели, продукты, рецепты, еда, вес, шаги, замеры. Скопируй и вставь себе в «Избранное» Telegram — раз в неделю хватит.'+(BK_AT?' Последняя копия: <b>'+esc(dmy(BK_AT))+'</b>.':'')+'</div><div class="smb" style="margin-top:8px"><button class="pri" id="exp" style="color:#fff">Скопировать данные</button><button id="impo">Восстановить…</button></div><div id="impbox"></div>'
+    +'<h3 style="margin-top:14px">📦 Автоснимки</h3><div class="sub">Раз в неделю приложение само сохраняет копию всего (еда — за последние 8 недель) в твоё облако Telegram и хранит 4 последних. Случайно что-то удалила — верни снимок.</div>'
+    +(SNAPS.length?SNAPS.slice().reverse().map(d=>'<div class="row" style="margin-top:6px"><span>снимок от <b>'+esc(dmy(d))+'</b></span><button data-snap="snap_'+d.replace(/-/g,'')+'" style="padding:6px 12px">Вернуть</button></div>').join(''):'<div class="sub" style="margin-top:6px">Первый снимок появится автоматически.</div>');
   return h;
 }
 function tplView(){
@@ -1101,7 +1106,7 @@ document.addEventListener('change', async e => {
 });
 /* ---------- переключение вкладок ---------- */
 function render() {
-  document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === TAB));
+  document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === TAB)); bkBar();
   $('tabs').style.display = '';
   if (TAB === 'food') return renderFood();
   if (TAB === 'body') return renderBody();
@@ -1359,6 +1364,37 @@ document.addEventListener('input', e => { const k = TAB === 'body' && e.target.d
   const el = $('rw-' + k); if (el) el.textContent = (k === 'st' ? n1(RCW[k]) : fmtN(RCW[k])) + (k === 'kcal' ? ' ккал' : ''); });
 document.addEventListener('toggle', e => { if (e.target.id === 'rc-what') pref.set('rwopen', e.target.open ? '1' : '0'); }, true);
 
+/* ================= 📦 резервная копия всего приложения ================= */
+async function restoreAll(o){
+    if(o.v>=4){ if(o.cfg){ CFG=Object.assign({},DEF_CFG,o.cfg); await setJ('cfg',CFG); } if(Array.isArray(o.prods)){ PRODS=o.prods; await setJ('prods',PRODS); } if(Array.isArray(o.recipes)){ RECS=o.recipes; await setJ('recipes',RECS); }
+      if(Array.isArray(o.wt)){ WT=o.wt; await setJ('wt',WT); } if(o.steps && typeof o.steps==='object'){ ST=o.steps; await setJ('steps',ST); } if(Array.isArray(o.meas)){ MEASA=o.meas; await setJ('meas',MEASA); }
+      if(o.food && typeof o.food==='object') for(const k of Object.keys(o.food)) if(/^fw_\d{8}$/.test(k)){ FW[k]=o.food[k]; await setJ(k,o.food[k]); } }
+    EX=o.ex; TPL=o.tpl; await setJ(K_EX,EX); await setJ(K_TPL,TPL);
+    for(const w of o.log){ if(w && /^\d{4}-\d{2}-\d{2}$/.test(w.d) && Array.isArray(w.ex)){ LOG[w.d]=w; await setJ(keyOf(w.d), w); if(!IDX.includes(w.d)) IDX.push(w.d); } }
+    IDX.sort(); await setJ(K_DAYS,IDX);     EX=o.ex; TPL=o.tpl; await setJ(K_EX,EX); await setJ(K_TPL,TPL);
+    for(const w of o.log){ if(w && /^\d{4}-\d{2}-\d{2}$/.test(w.d) && Array.isArray(w.ex)){ LOG[w.d]=w; await setJ(keyOf(w.d), w); if(!IDX.includes(w.d)) IDX.push(w.d); } }
+    IDX.sort(); await setJ(K_DAYS,IDX);
+}
+// автоснимки: раз в 7 дней сама кладёт копию в её облако, хранит 4 последних
+async function autoSnap(){ try{ let L=await getJ('snaps',[]); if(!Array.isArray(L)) L=[]; const t=today();
+  if(L.length && (Date.parse(t)-Date.parse(L[L.length-1]))/864e5<7) return; if(!IDX.length && !(WT&&WT.length)) return;
+  const o=JSON.parse(await backupAll(8)); await setJ('snap_'+t.replace(/-/g,''), o); L=L.filter(d=>d!==t); L.push(t);
+  while(L.length>4){ const d=L.shift(); try{ await delJ('snap_'+d.replace(/-/g,'')); }catch(e){} } await setJ('snaps',L); SNAPS=L; }catch(e){ console.error('snap',e); } }
+let SNAPS=[];
+
+let BK_AT = '';
+async function backupAll(weeks){
+  const food={}; let n=0; for(let d=today(); d>='2026-11-01' && (!weeks || n<weeks); d=dAdd(d,-7), n++){ const k=monKey(d), w=await weekOf(d); if(w && Object.keys(w).length) food[k]=w; }
+  return JSON.stringify({app:'allina', v:4, at:today(), ex:EX, tpl:TPL, log:IDX.map(x=>LOG[x]), cfg:CFG, prods:PRODS, recipes:RECS, wt:WT, steps:ST, meas:MEASA, food});
+}
+async function bkMark(){ BK_AT=today(); try{ await rawSet('bk_at',BK_AT); }catch(e){} bkBar(); }
+function bkBar(){ const el=$('bkbar'); if(!el) return; const old=!BK_AT || (Date.parse(today())-Date.parse(BK_AT))/864e5>=30;
+  const any=IDX.length || (WT && WT.length);
+  if(!old || !any){ el.style.display='none'; return; }
+  el.style.display=''; el.innerHTML='<button id="bkq" style="width:100%;margin-top:8px;padding:9px;border-radius:12px;border:1px dashed var(--acc);background:transparent;color:var(--acc);font-size:13.5px">📦 '+(BK_AT?'Ручной копии не было с '+esc(dmy(BK_AT)):'Ручную копию ещё не делала')+' — тапни, скопируется всё (автоснимки и так идут)</button>'; }
+document.addEventListener('click', async e=>{ if(!e.target.closest('#bkq')) return; const data=await backupAll();
+  try{ await navigator.clipboard.writeText(data); await bkMark(); toast('Скопировано всё — вставь себе в «Избранное» Telegram', 4000); }
+  catch(err){ pref.set('tab','gym'); TAB='gym'; gv='kb'; kbv='bk'; render(); toast('Не получилось скопировать — нажми «Скопировать данные» здесь', 4000); } });
 /* ================= отрисовка ================= */
 function renderGym(){ render(); }
 function renderGymOnly(){
@@ -1461,15 +1497,16 @@ app.addEventListener('click', async e=>{
     if(d.tback){ TPL=await getJ(K_TPL,TPL); tplEd=null; renderGym(); return; }
     if(b.id==='t-del'){ if(!(await ask('Удалить шаблон «'+t.name+'»? Тренировки в истории останутся.'))) return; TPL.splice(tplEd,1); await setJ(K_TPL,TPL); tplEd=null; renderGym(); return; }
   }
-  if(b.id==='exp'){ const data=JSON.stringify({app:'allina', v:3, ex:EX, tpl:TPL, log:IDX.map(x=>LOG[x])});
-    try{ await navigator.clipboard.writeText(data); toast('Скопировано — вставь в «Избранное»'); }catch(err){ $('impbox').innerHTML='<div class="sub" style="margin-top:6px">Скопируй текст вручную:</div><textarea readonly>'+esc(data)+'</textarea>'; } return; }
+  if(b.id==='exp'){ const data=await backupAll();
+    try{ await navigator.clipboard.writeText(data); await bkMark(); toast('Скопировано всё — вставь в «Избранное»', 3500); }catch(err){ $('impbox').innerHTML='<div class="sub" style="margin-top:6px">Скопируй текст вручную (зажми → Выделить всё → Копировать):</div><textarea readonly>'+esc(data)+'</textarea>'; await bkMark(); } return; }
   if(b.id==='impo'){ $('impbox').innerHTML='<textarea id="imptx" style="margin-top:8px" placeholder="вставь сюда резервную копию"></textarea><button class="pri" id="impgo" style="margin-top:6px">Восстановить</button>'; return; }
   if(b.id==='impgo'){ let o; try{ o=JSON.parse($('imptx').value); }catch(err){ return toast('Это не похоже на копию'); }
     if(!o || o.app!=='allina' || !Array.isArray(o.ex) || !Array.isArray(o.tpl) || !Array.isArray(o.log)) return toast('Это не похоже на копию');
-    if(!(await ask('Восстановить копию? Шаблоны и упражнения заменятся, тренировки из копии добавятся к текущим.'))) return;
-    EX=o.ex; TPL=o.tpl; await setJ(K_EX,EX); await setJ(K_TPL,TPL);
-    for(const w of o.log){ if(w && /^\d{4}-\d{2}-\d{2}$/.test(w.d) && Array.isArray(w.ex)){ LOG[w.d]=w; await setJ(keyOf(w.d), w); if(!IDX.includes(w.d)) IDX.push(w.d); } }
-    IDX.sort(); await setJ(K_DAYS,IDX); toast('Восстановлено'); renderGym(); return; }
+    if(!(await ask(o.v>=4 ? 'Восстановить копию от '+(o.at?dmy(o.at):'?')+'? Заменятся шаблоны, упражнения, цели, продукты, рецепты, вес, шаги, замеры и еда за недели из копии; тренировки из копии добавятся к текущим.' : 'Восстановить копию? Шаблоны и упражнения заменятся, тренировки из копии добавятся к текущим.'))) return;
+    await restoreAll(o); toast('Восстановлено'); renderGym(); return; }
+  if(b.dataset && b.dataset.snap){ const o=await getJ(b.dataset.snap,null); if(!o) return toast('Снимок не читается');
+    if(!(await ask('Вернуть всё как было '+dmy(o.at)+'? Текущие вес, шаги, замеры, продукты, цели и еда за эти недели заменятся снимком; тренировки из снимка добавятся.'))) return;
+    await restoreAll(o); toast('Вернула снимок от '+dmy(o.at)); renderGym(); return; }
   // мышцы
   if(d.gmv){ gmv=d.gmv; renderGym(); return; }
   if(d.ms!==undefined){ gMs = gMs===d.ms ? '' : d.ms; renderGym(); return; }
