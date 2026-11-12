@@ -183,7 +183,7 @@ textarea{min-height:70px;resize:vertical}
 </style>
 </head>
 <body>
-<header><div class="brand"><b>AllinA</b><span>твой дневник</span><div class="sp"></div><span id="store" class="sub"></span><button id="thbtn" aria-label="тема">🎨</button></div><div class="thm" id="thm"></div><div id="tabs"></div><div id="bkbar" style="display:none"></div></header>
+<header><div class="brand"><b>AllinA</b><button id="setbtn" aria-label="настройки" style="background:transparent;padding:2px 4px;font-size:17px;align-self:center;position:relative">⚙️<i id="setdot" style="display:none;position:absolute;top:2px;right:0;width:8px;height:8px;border-radius:50%;background:var(--bad,#e5484d)"></i></button><span>твой дневник</span><div class="sp"></div><span id="store" class="sub"></span><button id="thbtn" aria-label="тема">🎨</button></div><div class="thm" id="thm"></div><div id="tabs"></div><div id="bkbar" style="display:none"></div></header><div id="setp" style="display:none;position:fixed;inset:0;z-index:60;background:var(--bg);overflow:auto;padding:14px 14px 90px"></div>
 <main id="app"><div class="card sub">Загрузка…</div></main>
 <div id="timer"><span>Отдых</span><b id="tsec">0:00</b><div class="sp"></div><button id="tplus">+30 с</button><button id="tstop">✕</button></div>
 <div class="toast" id="toast"></div>
@@ -202,7 +202,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 /* ================= хранилище: облако Telegram (≤4096 символов на ключ), иначе память браузера ================= */
 const TG = window.Telegram && window.Telegram.WebApp;
-const APP_V = '12.11f';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
+const APP_V = '12.11g';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
 const CS = TG && TG.CloudStorage && TG.isVersionAtLeast && TG.isVersionAtLeast('6.9') ? TG.CloudStorage : null;
 const PART = 4000;
 const K_EX='exlib', K_TPL='tpls', K_DAYS='days', K_DRAFT='draft3';   // ключи v3 (старые ex/tpl/idx/cur от v1–v2 не трогаем)
@@ -649,9 +649,7 @@ function gymKb(){
   }
   KB_SECTIONS.forEach((s,i)=>{ if(kbv==='s'+i) h+='<h3>'+esc(s.title)+'</h3><ul class="kbl">'+s.items.map(r=>'<li>'+esc(r)+'</li>').join('')+'</ul>'; });
   if(kbv==='tpl') h+=tplView();
-  if(kbv==='bk') h+='<h3>Резервная копия</h3><div class="sub">Всё приложение одним текстом: тренировки, шаблоны, упражнения, цели, продукты, рецепты, еда, вес, шаги, замеры. Скопируй и вставь себе в «Избранное» Telegram — раз в неделю хватит.'+(BK_AT?' Последняя копия: <b>'+esc(dmy(BK_AT))+'</b>.':'')+'</div><div class="smb" style="margin-top:8px"><button class="pri" id="exp" style="color:#fff">Скопировать данные</button><button id="impo">Восстановить…</button></div><div id="impbox"></div>'
-    +'<h3 style="margin-top:14px">📦 Автоснимки</h3><div class="sub">Раз в неделю приложение само сохраняет копию всего (еда — за последние 8 недель) в твоё облако Telegram и хранит 4 последних. Случайно что-то удалила — верни снимок.</div>'
-    +(SNAPS.length?SNAPS.slice().reverse().map(d=>'<div class="row" style="margin-top:6px"><span>снимок от <b>'+esc(dmy(d))+'</b></span><button data-snap="snap_'+d.replace(/-/g,'')+'" style="padding:6px 12px">Вернуть</button></div>').join(''):'<div class="sub" style="margin-top:6px">Первый снимок появится автоматически.</div>');
+  if(kbv==='bk') h+='<h3>Резервная копия</h3><div class="sub">Переехала в ⚙️ Настройки — шестерёнка рядом с AllinA вверху: автоснимки, ручная копия и восстановление.</div><button class="pri" id="gosets" style="margin-top:8px">Открыть ⚙️ Настройки</button>';
   return h;
 }
 function tplView(){
@@ -1389,12 +1387,44 @@ async function backupAll(weeks){
 }
 async function bkMark(){ BK_AT=today(); try{ await rawSet('bk_at',BK_AT); }catch(e){} bkBar(); }
 function bkBar(){ const el=$('bkbar'); if(!el) return; const old=!BK_AT || (Date.parse(today())-Date.parse(BK_AT))/864e5>=30;
-  const any=IDX.length || (WT && WT.length);
-  if(!old || !any){ el.style.display='none'; return; }
+  const any=IDX.length || (WT && WT.length); const dot=$('setdot'); if(dot) dot.style.display=(old && any)?'':'none';
+  el.style.display='none'; return;
   el.style.display=''; el.innerHTML='<button id="bkq" style="width:100%;margin-top:8px;padding:9px;border-radius:12px;border:1px dashed var(--acc);background:transparent;color:var(--acc);font-size:13.5px">📦 '+(BK_AT?'Ручной копии не было с '+esc(dmy(BK_AT)):'Ручную копию ещё не делала')+' — тапни, скопируется всё (автоснимки и так идут)</button>'; }
 document.addEventListener('click', async e=>{ if(!e.target.closest('#bkq')) return; const data=await backupAll();
   try{ await navigator.clipboard.writeText(data); await bkMark(); toast('Скопировано всё — вставь себе в «Избранное» Telegram', 4000); }
   catch(err){ pref.set('tab','gym'); TAB='gym'; gv='kb'; kbv='bk'; render(); toast('Не получилось скопировать — нажми «Скопировать данные» здесь', 4000); } });
+/* ================= ⚙️ Настройки: резервная копия ================= */
+function settingsHTML(){
+  const t=today(), lastS=SNAPS.length?SNAPS[SNAPS.length-1]:null, nextS=lastS?dAdd(lastS,7):t, nextM=BK_AT?dAdd(BK_AT,30):t, overdue=!BK_AT||nextM<=t;
+  return '<div class="row" style="align-items:center;margin-bottom:10px"><h2 style="margin:0">⚙️ Настройки</h2><button id="setclose" style="padding:6px 14px">✕ Закрыть</button></div>'
+   +'<div class="card"><h2>📦 Резервная копия</h2>'
+   +'<h3>🤖 Автоснимки</h3><div class="sub">Сами, раз в 7 дней — когда открываешь приложение. Лежат в твоём облаке Telegram, хранятся 4 последних (еда — за 8 недель).</div>'
+   +'<div class="row" style="margin-top:6px"><span>последний</span><b>'+(lastS?esc(dmy(lastS)):'ещё не было')+'</b></div>'
+   +'<div class="row"><span>следующий</span><b>'+(nextS<=t?'при следующем открытии':'≈ '+esc(dmy(nextS)))+'</b></div>'
+   +(SNAPS.length?SNAPS.slice().reverse().map(d=>'<div class="row" style="margin-top:4px"><span>снимок от <b>'+esc(dmy(d))+'</b></span><button data-snap2="snap_'+d.replace(/-/g,'')+'" style="padding:6px 12px">Вернуть</button></div>').join(''):'')
+   +'<h3 style="margin-top:14px">✋ Ручная копия</h3><div class="sub">Всё приложение одним текстом — на крайний случай (если что-то случится с аккаунтом или ботом). Скопируй и вставь в «Заметки» на iPhone: там текст не режется.</div>'
+   +'<div class="row" style="margin-top:6px"><span>последняя</span><b class="'+(BK_AT?'':'warn')+'">'+(BK_AT?esc(dmy(BK_AT)):'ещё не делала')+'</b></div>'
+   +'<div class="row"><span>следующая</span><b class="'+(overdue?'warn':'')+'">'+(overdue?'сейчас':esc(dmy(nextM)))+'</b></div>'
+   +'<button class="pri big" id="exp2" style="margin-top:8px">📋 Скопировать всё</button><div id="expbox"></div>'
+   +'<h3 style="margin-top:14px">📥 Восстановить из копии</h3><div class="sub">Вставь текст ручной копии и нажми «Восстановить». Понимает и старые копии (только тренировки).</div>'
+   +'<textarea id="imptx2" style="margin-top:6px;min-height:90px" placeholder="вставь сюда текст копии"></textarea><button class="pri" id="impgo2" style="margin-top:6px">Восстановить</button></div>'
+   +'<div class="sub" style="text-align:center;margin-top:10px">AllinA v'+esc(APP_V)+' · '+(CS?'☁︎ облако Telegram':'⚠︎ память браузера')+'</div>';
+}
+function openSettings(){ const el=$('setp'); el.innerHTML=settingsHTML(); el.style.display=''; window.scrollTo(0,0); hap(); }
+function closeSettings(){ $('setp').style.display='none'; render(); }
+$('setbtn').addEventListener('click', openSettings);
+$('setp').addEventListener('click', async e=>{ const b=e.target.closest('button'); if(!b) return;
+  if(b.id==='setclose') return closeSettings();
+  if(b.id==='exp2'){ const data=await backupAll(); try{ await navigator.clipboard.writeText(data); await bkMark(); toast('Скопировано всё — вставь в «Заметки»', 3500); $('setp').innerHTML=settingsHTML(); }
+    catch(err){ $('expbox').innerHTML='<div class="sub" style="margin-top:6px">Скопируй вручную: зажми → «Выбрать всё» → «Скопировать».</div><textarea readonly style="min-height:90px">'+esc(data)+'</textarea>'; await bkMark(); } return; }
+  if(b.id==='impgo2'){ let o; try{ o=JSON.parse($('imptx2').value); }catch(err){ return toast('Это не похоже на копию'); }
+    if(!o || o.app!=='allina' || !Array.isArray(o.ex) || !Array.isArray(o.tpl) || !Array.isArray(o.log)) return toast('Это не похоже на копию');
+    if(!(await ask('Восстановить копию'+(o.at?' от '+dmy(o.at):'')+'? Данные из копии заменят текущие (тренировки из копии добавятся).'))) return;
+    await restoreAll(o); toast('Восстановлено'); $('setp').innerHTML=settingsHTML(); return; }
+  if(b.dataset.snap2){ const o=await getJ(b.dataset.snap2,null); if(!o) return toast('Снимок не читается');
+    if(!(await ask('Вернуть всё как было '+dmy(o.at)+'? Текущие вес, шаги, замеры, продукты, цели и еда за эти недели заменятся снимком; тренировки из снимка добавятся.'))) return;
+    await restoreAll(o); toast('Вернула снимок от '+dmy(o.at)); $('setp').innerHTML=settingsHTML(); return; }
+});
 /* ================= отрисовка ================= */
 function renderGym(){ render(); }
 function renderGymOnly(){
@@ -1499,6 +1529,7 @@ app.addEventListener('click', async e=>{
   }
   if(b.id==='exp'){ const data=await backupAll();
     try{ await navigator.clipboard.writeText(data); await bkMark(); toast('Скопировано всё — вставь в «Избранное»', 3500); }catch(err){ $('impbox').innerHTML='<div class="sub" style="margin-top:6px">Скопируй текст вручную (зажми → Выделить всё → Копировать):</div><textarea readonly>'+esc(data)+'</textarea>'; await bkMark(); } return; }
+  if(b.id==='gosets'){ openSettings(); return; }
   if(b.id==='impo'){ $('impbox').innerHTML='<textarea id="imptx" style="margin-top:8px" placeholder="вставь сюда резервную копию"></textarea><button class="pri" id="impgo" style="margin-top:6px">Восстановить</button>'; return; }
   if(b.id==='impgo'){ let o; try{ o=JSON.parse($('imptx').value); }catch(err){ return toast('Это не похоже на копию'); }
     if(!o || o.app!=='allina' || !Array.isArray(o.ex) || !Array.isArray(o.tpl) || !Array.isArray(o.log)) return toast('Это не похоже на копию');
