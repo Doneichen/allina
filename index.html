@@ -202,7 +202,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 /* ================= хранилище: облако Telegram (≤4096 символов на ключ), иначе память браузера ================= */
 const TG = window.Telegram && window.Telegram.WebApp;
-const APP_V = '12.11b';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
+const APP_V = '12.11c';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
 const CS = TG && TG.CloudStorage && TG.isVersionAtLeast && TG.isVersionAtLeast('6.9') ? TG.CloudStorage : null;
 const PART = 4000;
 const K_EX='exlib', K_TPL='tpls', K_DAYS='days', K_DRAFT='draft3';   // ключи v3 (старые ex/tpl/idx/cur от v1–v2 не трогаем)
@@ -709,6 +709,7 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 /* ================= ЕДА и ТЕЛО (этап 2) ================= */
 let TAB = pref.get('tab', 'food'), fv = pref.get('fv', 'day');
 let CFG = null, PRODS = [], FW = {}, WT = [], ST = {}, fDay = null;
+let MEASA = [], mDay = null;
 const DEF_CFG = {kcal: 1600, p: 100, f: 55, tdee: 1800, stepsBase: 3600, perK: 25, tol: 100, height: 165};
 const MEALS = [['b', 'Завтрак'], ['l', 'Обед'], ['d', 'Ужин'], ['s', 'Перекус']];
 const r1 = x => Math.round((+x || 0) * 10) / 10;
@@ -720,6 +721,7 @@ async function loadFood() {
   PRODS = await getJ('prods', []); if (!Array.isArray(PRODS)) PRODS = [];
   WT = await getJ('wt', []); if (!Array.isArray(WT)) WT = [];
   ST = await getJ('steps', {}); if (!ST || typeof ST !== 'object') ST = {};
+  MEASA = await getJ('meas', []); if (!Array.isArray(MEASA)) MEASA = [];
   RECS = await getJ('recipes', []); if (!Array.isArray(RECS)) RECS = [];
   const t = today(); fDay = t;
   for (let i = 0; i < 9; i++) { const k = monKey(dAdd(t, -7 * i)); FW[k] = await getJ(k, {}); }
@@ -849,12 +851,12 @@ function stepsChart2(sel) {
     + '<text x="' + pd + '" y="' + (H - 4) + '" font-size="11" style="fill:var(--hint)">' + dmy(days[0]) + '</text><text x="' + W + '" y="' + (H - 4) + '" font-size="11" text-anchor="end" style="fill:var(--hint)">' + dmy(days[n - 1]) + '</text></svg>';
 }
 function renderBody() {
-  $('tabs').style.gridTemplateColumns = ''; $('tabs').innerHTML = '';
+  const bt = bTab(); $('tabs').style.gridTemplateColumns = ''; $('tabs').innerHTML = BTABS.map(([k, l]) => '<button data-bt="' + k + '" class="' + (k === bt ? 'on' : '') + '">' + l + '</button>').join('');
   const t = today(); if (!wDay) wDay = t; if (!sDay) sDay = t;
   const ws = wSorted(), last = ws[ws.length - 1], wv = WT.find(x => x[0] === wDay), prev = ws.filter(x => x[0] < wDay).pop();
   const aLast = last ? avg7(last[0]) : null, aSel = wv ? avg7(wDay) : null, wk = weekDef();
   const delta = wv && prev ? wv[1] - prev[1] : null;
-  let h = '<div class="card"><h2>⚖️ Вес · среднее за 7 дней</h2>'
+  let h = '<div class="card" data-bc="w"><h2>⚖️ Вес · среднее за 7 дней</h2>'
     + '<div class="row"><div class="kbig"><b>' + (aLast != null ? n1(aLast) : '—') + '</b> кг</div><span class="sub">' + (last ? 'последний: ' + n2(last[1]) + ' · ' + esc(dmy(last[0])) : 'пока нет замеров') + '</span></div>'
     + dnav2('w', wDay, 'взвешивание', wDay < t)
     + '<div class="g2"><input id="b-w" inputmode="decimal" placeholder="вес, кг" value="' + (wv ? n2(wv[1]) : '') + '"><button class="pri" data-bx="wsave">' + (wv ? 'Исправить' : 'Записать') + '</button></div>'
@@ -865,7 +867,7 @@ function renderBody() {
     + (wk.n ? '<div class="row" style="margin-top:8px"><span>Неделя с ' + esc(dmy(monOf(t))) + '</span><b class="' + (wk.def >= 0 ? 'ok' : 'bad') + '">' + (wk.def >= 0 ? 'дефицит ' : 'профицит ') + fmtN(Math.abs(wk.def)) + ' ккал</b></div>' : '') + '</div>';
   const ph = ST[sDay], tm = tmSteps(sDay), sv = stepsOf(sDay), base = CFG.stepsBase, avgN = n => { const v = []; for (let i = 0; i < n; i++) { const x = stepsOf(dAdd(t, -i)); if (x != null) v.push(x); } return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null; };
   const a7 = avgN(7), a30 = avgN(30);
-  h += '<div class="card"><h2>👟 Шаги · 30 дней</h2>' + dnav2('s', sDay, 'база ' + fmtN(base), sDay < t)
+  h += '<div class="card" data-bc="s"><h2>👟 Шаги · 30 дней</h2>' + dnav2('s', sDay, 'база ' + fmtN(base), sDay < t)
     + '<div class="g2"><input id="b-s" inputmode="numeric" placeholder="шаги с телефона" value="' + (ph != null ? ph : '') + '"><button class="pri" data-bx="ssave">' + (ph != null ? 'Исправить' : 'Записать') + '</button></div>'
     + (tm ? '<div class="sub" style="margin-top:6px">📱 телефон ' + (ph != null ? fmtN(ph) : '—') + ' + 🏃 дорожка ' + fmtN(tm) + ' = <b>' + fmtN(sv) + '</b>. Дорожка прибавляется сама — в поле вписывай только то, что показывает телефон.</div>' : '')
     + '<div class="row" style="margin-top:6px"><span><b>' + (sv != null ? fmtN(sv) : '—') + '</b> / ' + fmtN(base) + '</span><span>' + (sv == null ? '<span class="sub">не записаны</span>' : (sv >= base ? '<span class="ok">база есть</span>' : '<span class="warn">до базы ' + fmtN(base - sv) + '</span>')) + '</span></div>'
@@ -873,11 +875,13 @@ function renderBody() {
     + stepsChart2(sDay)
     + '<div class="row" style="margin-top:6px"><span>Среднее 7 дн <b>' + (a7 != null ? fmtN(a7) : '—') + '</b></span><span>30 дн <b>' + (a30 != null ? fmtN(a30) : '—') + '</b></span></div>'
     + '<div class="sub" style="margin-top:6px">Пунктир — твоя база ' + fmtN(base) + '. Зелёный — дотянула, жёлтый — почти, красный — мало. Тап по столбику — тот день. Цель по ккал: ' + CFG.perK + ' ккал за каждую 1000 шагов от базы.</div></div>';
-  h += '<div class="card"><h2>🎯 Цели</h2><div class="sub">Можно менять. Углеводы считаются сами: остаток калорий после белка и жиров.</div>'
+  h += '<div class="card" data-bc="g"><h2>🎯 Цели</h2><div class="sub">Можно менять. Углеводы считаются сами: остаток калорий после белка и жиров.</div>'
     + [['kcal', 'Калории в день', 'ккал'], ['p', 'Белок', 'г'], ['f', 'Жиры', 'г'], ['tdee', 'Поддержка (для дефицита недели)', 'ккал'], ['stepsBase', 'Обычные шаги в день', 'шагов'], ['perK', 'Ккал на 1000 шагов', 'ккал'], ['tol', 'Допуск серии сверх цели', 'ккал'], ['height', 'Рост (для шагов на дорожке)', 'см']]
       .map(([k, l, u]) => '<label class="lbl">' + l + ', ' + u + '</label><input data-cfg="' + k + '" inputmode="numeric" value="' + CFG[k] + '">').join('')
     + '<div class="sub" style="margin-top:6px">Углеводы сейчас: ' + target(t).c + ' г</div><button class="pri big" data-fx="cfgsave">Сохранить цели</button></div>';
+  h += measCardA() + recompCardA();
   $('app').innerHTML = h;
+  document.querySelectorAll('#app [data-bc]').forEach(c => { c.style.display = c.dataset.bc === bt ? '' : 'none'; });
 }
 document.addEventListener('click', async e => {
   const b = e.target.closest('[data-bx]'); if (!b || TAB !== 'body') return; const d = b.dataset, t = today();
@@ -1098,7 +1102,7 @@ document.addEventListener('change', async e => {
 /* ---------- переключение вкладок ---------- */
 function render() {
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === TAB));
-  $('tabs').style.display = TAB === 'body' ? 'none' : '';
+  $('tabs').style.display = '';
   if (TAB === 'food') return renderFood();
   if (TAB === 'body') return renderBody();
   $('tabs').style.gridTemplateColumns = ''; renderGymOnly();
@@ -1196,6 +1200,114 @@ document.addEventListener('click', async e => {
   if (a === 'save') { await cdSave(); return; }
   if (a === 'reset') { if (!(await ask('Сбросить кардио?'))) return; pref.set('cardio', JSON.stringify(cdNew())); cdWake(false); renderGym(); return; }
 }, true);
+
+
+/* ================= Тело: 📏 Замеры + 💪 Рекомпозиция ================= */
+const BTABS = [['w', '⚖️ Вес'], ['m', '📏 Замеры'], ['s', '👟 Шаги'], ['r', '💪 Рекомп.'], ['g', '🎯 Цели']];
+const bTab = () => { const b = pref.get('btab', 'w'); return BTABS.some(x => x[0] === b) ? b : 'w'; };
+function measCardA() {
+  const t = today(); if (!mDay) mDay = t;
+  const m = MEASA.slice().sort((a, b) => a[0] < b[0] ? -1 : 1), cur = m.find(x => x[0] === mDay);
+  const pts = m.filter(x => x[1] != null || x[2] != null);
+  let chart = '';
+  if (pts.length > 1) {
+    const W = 520, H = 160, P = 30, vs = pts.flatMap(x => [x[1], x[2]]).filter(v => v != null), lo = Math.floor(Math.min(...vs) - 1), hi = Math.ceil(Math.max(...vs) + 1);
+    const t0 = Date.parse(pts[0][0]), t1 = Date.parse(pts[pts.length - 1][0]), X = d => P + (Date.parse(d) - t0) / (t1 - t0 || 1) * (W - P - 8), Y = v => 8 + (hi - v) / (hi - lo || 1) * (H - 30);
+    const line = (i, col) => { const q = pts.filter(x => x[i] != null); return q.length ? '<path d="' + q.map((x, k) => (k ? 'L' : 'M') + X(x[0]).toFixed(1) + ' ' + Y(x[i]).toFixed(1)).join(' ') + '" fill="none" style="stroke:' + col + '" stroke-width="2.5"/>' + q.map(x => '<circle cx="' + X(x[0]).toFixed(1) + '" cy="' + Y(x[i]).toFixed(1) + '" r="3" style="fill:' + col + '"/>').join('') : ''; };
+    let g = ''; const st = hi - lo > 12 ? 5 : 2; for (let k = Math.ceil(lo / st) * st; k <= hi; k += st) g += '<line x1="' + P + '" x2="' + W + '" y1="' + Y(k).toFixed(1) + '" y2="' + Y(k).toFixed(1) + '" style="stroke:var(--line)"/><text x="0" y="' + (Y(k) + 4).toFixed(1) + '" font-size="11" style="fill:var(--hint)">' + k + '</text>';
+    chart = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '">' + g + line(1, 'var(--acc)') + line(2, 'var(--warn)') + '<text x="' + P + '" y="' + (H - 4) + '" font-size="11" style="fill:var(--hint)">' + dmy(pts[0][0]) + '</text><text x="' + W + '" y="' + (H - 4) + '" font-size="11" text-anchor="end" style="fill:var(--hint)">' + dmy(pts[pts.length - 1][0]) + '</text></svg>'
+      + '<div class="sub"><span style="color:var(--acc)">●</span> талия · <span style="color:var(--warn)">●</span> бёдра</div>';
+  }
+  const df = (i) => { const q = pts.filter(x => x[i] != null); if (q.length < 2) return ''; const v = q[q.length - 1][i] - q[0][i]; return '<span class="' + (v > 0 ? 'warn' : 'ok') + '">' + (v > 0 ? '+' : '') + n1(v) + '</span> с ' + esc(dmy(q[0][0])); };
+  const last = pts[pts.length - 1];
+  return '<div class="card" data-bc="m"><h2>📏 Замеры · талия и бёдра</h2>'
+    + (last ? '<div class="row"><span>талия <b>' + (last[1] != null ? n1(last[1]) : '—') + '</b> см ' + df(1) + '</span><span>бёдра <b>' + (last[2] != null ? n1(last[2]) : '—') + '</b> см ' + df(2) + '</span></div>' : '<div class="sub">Пока пусто. Раз в неделю, утром — две цифры в сантиметрах.</div>')
+    + '<label class="lbl">Дата</label><input type="date" id="m-d" value="' + esc(mDay) + '" max="' + esc(t) + '">'
+    + '<div class="g2" style="margin-top:6px"><input id="m-w" inputmode="decimal" placeholder="талия, см" value="' + (cur && cur[1] != null ? n1(cur[1]) : '') + '"><input id="m-h" inputmode="decimal" placeholder="бёдра, см" value="' + (cur && cur[2] != null ? n1(cur[2]) : '') + '"></div>'
+    + '<button class="pri big" data-bx="msave">' + (cur ? 'Исправить' : 'Записать') + '</button>' + (cur ? '<button class="ghost" data-bx="mdel">удалить замер за ' + esc(dmy(mDay)) + '</button>' : '')
+    + chart
+    + (pts.length ? '<details style="margin-top:6px"><summary class="sub">Все замеры</summary>' + pts.slice().reverse().map(x => '<div class="row"><span>' + esc(dmy(x[0])) + '</span><span>' + (x[1] != null ? n1(x[1]) : '—') + ' / ' + (x[2] != null ? n1(x[2]) : '—') + ' см</span></div>').join('') + '</details>' : '')
+    + '<details style="margin-top:6px"><summary class="sub">📏 Как мерить</summary><div class="sub">Утром натощак, после туалета, стоя, на спокойном выдохе. Лента горизонтально, прилегает, но не врезается. <b>Талия</b> — на уровне пупка. <b>Бёдра</b> — по самой выступающей точке ягодиц. Раз в неделю в один и тот же день. Вода по циклу меняет цифры на 1–2 см — сравнивай с тем же днём цикла.</div></details></div>';
+}
+// ── рекомпозиция: вес (средняя 7 дн), талия, сила → вердикт + прогноз жир/мышцы
+const RC_LEAN_BASE = 0.08;  // кг/нед, потолок для девушки-новичка в силовых (оценка ≈0,35 кг/мес)
+function rcStrength() {
+  const rows = rowsAll(), t = Date.parse(today()), sc = r => loadScore(r.load) * 100 + setsOf(r).reduce((a, v) => a + (parseInt(v) || 0), 0);
+  const by = {}; rows.forEach(r => { if (!r.ex || Date.parse(r.d) > t) return; (by[r.ex] = by[r.ex] || []).push(r); });
+  let up = 0, dn = 0, eq = 0;
+  Object.values(by).forEach(a => { a.sort((x, y) => x.d < y.d ? -1 : 1); const L = a[a.length - 1], P = a[a.length - 2];
+    if (!P || (t - Date.parse(L.d)) / 864e5 > 21 || (Date.parse(L.d) - Date.parse(P.d)) / 864e5 > 28) return;
+    const d = sc(L) - sc(P); if (d > 0) up++; else if (d < 0) dn++; else eq++; });
+  const n = up + dn + eq; return n < 2 ? {sig: null, up, dn, eq} : {sig: up >= 2 && up > dn ? 1 : (dn >= 2 && dn > up ? -1 : 0), up, dn, eq};
+}
+function rcWaist() {
+  const m = MEASA.filter(x => x[1] != null).sort((a, b) => a[0] < b[0] ? -1 : 1);
+  if (m.length < 2) return {n: m.length};
+  const a = m[0], b = m[m.length - 1]; return {n: m.length, delta: b[1] - a[1], days: (Date.parse(b[0]) - Date.parse(a[0])) / 864e5};
+}
+function rcTrend(L) {
+  const t = today(), t0 = Date.parse(t) - 28 * 864e5, ws = wSorted().filter(x => Date.parse(x[0]) >= t0);
+  if (ws.length < 4) return null;
+  const xs = ws.map(x => (Date.parse(x[0]) - t0) / 864e5), ys = ws.map(x => avg7(x[0])), n = xs.length;
+  if (xs[n - 1] - xs[0] < 10) return null;
+  const mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n;
+  const sl = xs.reduce((a, x, i) => a + (x - mx) * (ys[i] - my), 0) / xs.reduce((a, x) => a + (x - mx) ** 2, 0);
+  const eat = [], mt = []; for (let i = 1; i <= 28; i++) { const d = dAdd(t, -i), r = dayRows(d); if (r.length) { eat.push(sumRows(r).k); mt.push(maint(d)); } }
+  const eatAvg = eat.length >= 7 ? eat.reduce((a, b) => a + b, 0) / eat.length : null;
+  return {perWk: sl * 7, days: Math.round(xs[n - 1] - xs[0]), eatAvg, realTdee: eatAvg != null ? eatAvg - sl * 7700 + 5900 * (L || 0) / 7 : null, modelTdee: mt.length ? mt.reduce((a, b) => a + b, 0) / mt.length : null};
+}
+function recompCardA() {
+  const t = today(), ws = wSorted(), last = ws[ws.length - 1];
+  const str = rcStrength(), wa = rcWaist();
+  const eat7 = []; for (let i = 1; i <= 7; i++) { const r = dayRows(dAdd(t, -i)); if (r.length) eat7.push(sumRows(r).k); }
+  const kcal = eat7.length >= 3 ? eat7.reduce((a, b) => a + b, 0) / eat7.length : CFG.kcal;
+  const days28 = IDX.filter(d => Date.parse(d) >= Date.parse(t) - 28 * 864e5 && (LOG[d].ex || []).some(x => setsOf(x).length)).length, perWk = days28 / 4;
+  const trF = perWk >= 2 ? 1 : (perWk >= 1 ? 0.6 : 0), sF = !str || str.sig == null ? 0.5 : (str.sig > 0 ? 1 : (str.sig === 0 ? 0.4 : 0));
+  const lean = def => RC_LEAN_BASE * trF * sF * (def <= 300 ? 1 : (def <= 600 ? 0.6 : 0.3));
+  const tr0 = rcTrend(0), L0 = lean(tr0 && tr0.realTdee ? tr0.realTdee - kcal : CFG.tdee - kcal), tr = rcTrend(L0);
+  const m7 = []; for (let i = 0; i < 7; i++) m7.push(maint(dAdd(t, -i)));
+  const tdee = tr && tr.realTdee ? Math.max(tr.modelTdee - 500, Math.min(tr.modelTdee + 500, tr.realTdee)) : m7.reduce((a, b) => a + b, 0) / 7;
+  const def = tdee - kcal, L = lean(def);
+  // вердикт
+  const wS = tr ? tr.perWk : null, wD = wS == null ? null : (wS < -0.07 ? -1 : (wS > 0.07 ? 1 : 0));
+  const waD = wa.delta == null || wa.days < 10 ? null : (wa.delta <= -1 ? -1 : (wa.delta >= 1 ? 1 : 0)), sD = str ? str.sig : null;
+  const ar = v => v == null ? 'нет данных' : (v < 0 ? '↓' : (v > 0 ? '↑' : '≈'));
+  let v, cls = 'ok';
+  if (wD == null) { v = '⏳ Мало данных: нужно 10+ дней взвешиваний' + (wa.n < 2 ? ' и 2 замера талии' : ''); cls = ''; }
+  else if (wD < 0 && sD === -1) { v = '⚠ Вес уходит, сила падает — похоже, уходят и мышцы. Ешь чуть больше и добери белок.'; cls = 'warn'; }
+  else if (wD < 0 && waD !== 1) v = '🔥 Жир уходит' + (sD === 1 ? ', сила растёт — мышцы на месте' : '');
+  else if (wD === 0 && waD === -1) v = '💪 Рекомпозиция: вес стоит, талия уходит' + (sD === 1 ? ', сила растёт' : '') + ' — жир меняется на мышцы';
+  else if (wD === 0 && sD === 1) v = '💪 Похоже на рекомпозицию: вес стоит, сила растёт. Замеры талии подтвердят.';
+  else if (wD === 0) { v = '⏸ Вес стоит. Смотри на талию и силу — они покажут, что меняется.'; cls = ''; }
+  else if (wD > 0 && waD === 1) { v = '⚠ Вес и талия растут — набор жира. Проверь калории.'; cls = 'warn'; }
+  else if (wD > 0 && (sD === 1 || waD === -1)) { v = '💪 Вес растёт, но ' + (waD === -1 ? 'талия уходит' : 'сила растёт') + ' — скорее мышцы и вода, не жир.'; cls = ''; }
+  else { v = '⚠ Вес растёт — проверь калории и цикл (вода)'; cls = 'warn'; }
+  let w = last ? avg7(last[0]) : null, fat = 0, ln = 0; const pts = [];
+  for (let k = 1; k <= 12; k++) { const df = (-def * 7 - 1800 * L) / 7700; fat += df; ln += L; if (w != null) w += df + L; pts.push(w); }
+  const at = k => pts[k - 1] != null ? n1(pts[k - 1]) : '—';
+  return '<div class="card" data-bc="r"><h2>💪 Рекомпозиция</h2>'
+    + '<div style="font-size:16px;font-weight:600;margin:4px 0" class="' + cls + '">' + v + '</div>'
+    + '<div class="g3 sub" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:12px"><span>⚖️ вес ' + ar(wD) + (wS != null ? ' ' + (wS > 0 ? '+' : '') + n2(wS) + '/нед' : '') + '</span><span>📏 талия ' + ar(waD) + (wa.delta != null ? ' ' + (wa.delta > 0 ? '+' : '') + n1(wa.delta) + ' см' : '') + '</span><span>🏋️ сила ' + ar(sD) + (str && str.sig != null ? ' ' + str.up + '↑/' + str.dn + '↓' : '') + '</span></div>'
+    + (wa.n < 2 ? '<div class="sub" style="margin-top:4px">Для точности нужны замеры талии раз в неделю — вкладка 📏 Замеры.</div>' : '')
+    + '<div style="border-top:1px dashed var(--line);margin:10px 0 8px"></div>'
+    + '<div class="sub">Прогноз сам: ешь в среднем ≈ <b>' + fmtN(Math.round(kcal)) + '</b> ккал, расход ≈ <b>' + fmtN(Math.round(tdee / 10) * 10) + '</b>' + (tr && tr.realTdee ? ' (подстроен под твой реальный вес)' : '') + ', силовых ' + n1(perWk) + ' в неделю.</div>'
+    + '<div class="row" style="margin-top:6px"><span>' + (def >= 0 ? 'Дефицит' : 'Профицит') + '</span><b class="' + (def >= 0 ? 'ok' : 'warn') + '">' + fmtN(Math.round(Math.abs(def))) + ' ккал/день</b></div>'
+    + '<div class="row"><span>за 12 недель: жир</span><b class="ok">' + (fat <= 0 ? '−' : '+') + n1(Math.abs(fat)) + ' кг</b></div>'
+    + '<div class="row"><span>мышцы <span class="sub">(оценка)</span></span><b class="' + (ln > 0 ? 'ok' : '') + '">+' + n1(ln) + ' кг</b></div>'
+    + (w != null ? '<div class="row"><span>вес на весах</span><span>4 нед <b>' + at(4) + '</b> · 8 нед <b>' + at(8) + '</b> · 12 нед <b>' + at(12) + '</b></span></div>' : '')
+    + '<div class="sub" style="margin-top:6px">Весы могут стоять, а тело — меняться: килограмм жира ≈ 7 700 ккал, килограмм мышц ≈ 1 800. Поэтому главное здесь — талия и сила, а не вес. И вес у девушек гуляет на 1–2 кг по циклу — сравнивай с тем же днём цикла.</div>'
+    + '<details style="margin-top:6px"><summary class="sub">Как считается</summary><div class="sub">Вес — средняя за 7 дней, наклон за 4 недели. Еда — из дневника. Расход — поддержка из Целей ± шаги, подогнанный под реальный вес (не больше ±500). Сила — по каждому упражнению последняя тренировка против предыдущей (резинки, потом повторы). Прирост мышц — оценка: потолок ≈0,35 кг/мес, меньше при большом дефиците, редких тренировках и без роста силы.</div></details></div>';
+}
+document.addEventListener('click', async e => {
+  if (TAB !== 'body') return;
+  const bt = e.target.closest('[data-bt]'); if (bt) { pref.set('btab', bt.dataset.bt); hap(); render(); window.scrollTo(0, 0); return; }
+  const b = e.target.closest('[data-bx="msave"],[data-bx="mdel"]'); if (!b) return;
+  if (b.dataset.bx === 'msave') { const w = rnum($('m-w').value), h = rnum($('m-h').value);
+    if (w == null && h == null) return toast('Впиши талию или бёдра'); if ((w != null && !(w > 40 && w < 200)) || (h != null && !(h > 50 && h < 200))) return toast('Проверь сантиметры');
+    MEASA = MEASA.filter(x => x[0] !== mDay); MEASA.push([mDay, w, h]); await setJ('meas', MEASA); hap('ok'); render(); toast('Замер ' + dmy(mDay) + ' записан'); return; }
+  if (b.dataset.bx === 'mdel') { if (!(await ask('Удалить замер за ' + dmy(mDay) + '?'))) return; MEASA = MEASA.filter(x => x[0] !== mDay); await setJ('meas', MEASA); render(); }
+});
+document.addEventListener('change', e => { if (TAB === 'body' && e.target.id === 'm-d' && e.target.value) { mDay = e.target.value; render(); } });
 
 /* ================= отрисовка ================= */
 function renderGym(){ render(); }
