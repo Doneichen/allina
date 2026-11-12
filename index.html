@@ -202,7 +202,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 /* ================= хранилище: облако Telegram (≤4096 символов на ключ), иначе память браузера ================= */
 const TG = window.Telegram && window.Telegram.WebApp;
-const APP_V = '12.11c';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
+const APP_V = '12.11e';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
 const CS = TG && TG.CloudStorage && TG.isVersionAtLeast && TG.isVersionAtLeast('6.9') ? TG.CloudStorage : null;
 const PART = 4000;
 const K_EX='exlib', K_TPL='tpls', K_DAYS='days', K_DRAFT='draft3';   // ключи v3 (старые ex/tpl/idx/cur от v1–v2 не трогаем)
@@ -825,7 +825,7 @@ const fmtN = n => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 const dnav2 = (kind, d, sub, nextOk) => '<div class="dnav2"><button data-bx="' + kind + 'step" data-a="-1">‹</button><label class="dl2">' + esc(wd(d)) + ', ' + esc(dmy(d)) + (d === today() ? ' · сегодня' : '') + ' 📅<small>' + sub + '</small><input type="date" data-bx="' + kind + 'date" max="' + today() + '" value="' + d + '"></label><button data-bx="' + kind + 'step" data-a="1"' + (nextOk ? '' : ' disabled') + '>›</button></div>';
 const wSorted = () => WT.slice().sort((a, b) => a[0] < b[0] ? -1 : 1);
 function wChart2(sel) {
-  const P = wSorted().slice(-60); if (P.length < 2) return '';
+  const P = wSorted().slice(-60); if (P.length < 2) return '<div class="sub" style="margin:8px 0;padding:14px;border:1px dashed var(--line);border-radius:12px;text-align:center">📈 График появится со 2-го взвешивания' + (P.length ? ' — первое уже есть' : '') + '. Взвешивайся утром натощак — и линия средней за 7 дней покажет настоящий тренд.</div>';
   const W = 520, H = 170, pd = 30, v = P.map(x => x[1]), lo = Math.floor((Math.min(...v) - 0.2) * 2) / 2, hi = Math.ceil((Math.max(...v) + 0.2) * 2) / 2;
   const t0 = Date.parse(P[0][0]), t1 = Date.parse(P[P.length - 1][0]) || t0 + 1;
   const X = d => pd + (Date.parse(d) - t0) / ((t1 - t0) || 1) * (W - pd - 10), Y = y => 8 + (hi - y) / ((hi - lo) || 1) * (H - 30);
@@ -1256,18 +1256,55 @@ function rcTrend(L) {
   const eatAvg = eat.length >= 7 ? eat.reduce((a, b) => a + b, 0) / eat.length : null;
   return {perWk: sl * 7, days: Math.round(xs[n - 1] - xs[0]), eatAvg, realTdee: eatAvg != null ? eatAvg - sl * 7700 + 5900 * (L || 0) / 7 : null, modelTdee: mt.length ? mt.reduce((a, b) => a + b, 0) / mt.length : null};
 }
+function rcRun(def, L, w0, goal) {  // 52 недели: жир 7700, мышцы 1800 ккал/кг
+  let w = w0, fat = 0, ln = 0, reach = null; const pts = [];
+  for (let k = 1; k <= 52; k++) { const df = (-def * 7 - 1800 * L) / 7700; fat += df; ln += L; if (w != null) w += df + L; pts.push({w, fat, ln});
+    if (reach == null && w != null && goal != null && ((w0 > goal && w <= goal) || (w0 < goal && w >= goal))) reach = k; }
+  return {pts, reach};
+}
+function rcChart(run, goal) {
+  const t = today(), hist = wSorted().filter(x => Date.parse(x[0]) >= Date.parse(t) - 28 * 864e5).map(x => ({d: x[0], v: avg7(x[0])}));
+  if (!hist.length) return '';
+  const W = 520, H = 170, P = 34, t0 = Date.parse(t), pr = [{k: 0, v: hist[hist.length - 1].v}].concat(run.pts.slice(0, 12).map((p, i) => ({k: i + 1, v: p.w})));
+  const hx = hist.map(h => (Date.parse(h.d) - t0) / 864e5 / 7), vs = hist.map(h => h.v).concat(pr.map(p => p.v)).concat(goal != null ? [goal] : []);
+  const lo = Math.floor(Math.min(...vs) - .5), hi = Math.ceil(Math.max(...vs) + .5), x0 = Math.min(...hx, 0);
+  const X = v => P + (v - x0) / (12 - x0 || 1) * (W - P - 8), Y = v => 8 + (hi - v) / (hi - lo || 1) * (H - 30);
+  let g = ''; for (let k = lo; k <= hi; k += (hi - lo > 6 ? 2 : 1)) g += '<line x1="' + P + '" x2="' + W + '" y1="' + Y(k).toFixed(1) + '" y2="' + Y(k).toFixed(1) + '" style="stroke:var(--line)"/><text x="0" y="' + (Y(k) + 4).toFixed(1) + '" font-size="11" style="fill:var(--hint)">' + k + '</text>';
+  const hp = '<path d="' + hist.map((h, i) => (i ? 'L' : 'M') + X(hx[i]).toFixed(1) + ' ' + Y(h.v).toFixed(1)).join(' ') + '" fill="none" style="stroke:var(--acc)" stroke-width="2.5"/>';
+  const pp = '<path d="' + pr.map((p, i) => (i ? 'L' : 'M') + X(p.k).toFixed(1) + ' ' + Y(p.v).toFixed(1)).join(' ') + '" fill="none" style="stroke:var(--acc)" stroke-width="2" stroke-dasharray="6 5" opacity=".8"/>';
+  const gl = goal != null ? '<line x1="' + P + '" x2="' + W + '" y1="' + Y(goal).toFixed(1) + '" y2="' + Y(goal).toFixed(1) + '" style="stroke:var(--warn)" stroke-dasharray="3 4"/><text x="' + (W - 4) + '" y="' + (Y(goal) - 4).toFixed(1) + '" font-size="11" text-anchor="end" style="fill:var(--warn)">цель ' + n1(goal) + '</text>' : '';
+  const tk = [4, 8, 12].map(k => '<text x="' + X(k).toFixed(1) + '" y="' + (H - 4) + '" font-size="11" text-anchor="' + (k === 12 ? 'end' : 'middle') + '" style="fill:var(--hint)">+' + k + ' нед</text>').join('') + '<text x="' + X(0).toFixed(1) + '" y="' + (H - 4) + '" font-size="11" text-anchor="middle" style="fill:var(--hint)">сейчас</text>';
+  return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '">' + g + gl + hp + pp + '<line x1="' + X(0).toFixed(1) + '" x2="' + X(0).toFixed(1) + '" y1="6" y2="' + (H - 22) + '" style="stroke:var(--hint)" stroke-dasharray="2 4"/>' + tk + '</svg>'
+    + '<div class="sub">Сплошная — средний вес за 7 дней, пунктир — прогноз.</div>';
+}
+function rcBlock(def, L, w0, goal, compact) {
+  const run = rcRun(def, L, w0, goal), p12 = run.pts[11], at = k => run.pts[k - 1] && run.pts[k - 1].w != null ? n1(run.pts[k - 1].w) : '—';
+  let when = '';
+  if (goal != null && w0 != null) { if (run.reach != null) { const dd = new Date(Date.parse(today()) + run.reach * 7 * 864e5); when = '🎯 Цель ' + n1(goal) + ' кг — ≈ <b>' + dmy(dd.toISOString().slice(0, 10)) + '</b> (через ' + run.reach + ' нед)'; }
+    else when = goal < w0 ? '🎯 За год до цели по весам не дойдёшь — но смотри на талию: при рекомпозиции весы стоят.' : '🎯 Цель выше текущего веса'; }
+  return '<div class="row" style="margin-top:6px"><span>' + (def >= 0 ? 'Дефицит' : 'Профицит') + '</span><b class="' + (def >= 0 ? 'ok' : 'warn') + '">' + fmtN(Math.round(Math.abs(def))) + ' ккал/день</b></div>'
+    + '<div class="row"><span>за 12 недель: жир</span><b class="ok">' + (p12.fat <= 0 ? '−' : '+') + n1(Math.abs(p12.fat)) + ' кг</b></div>'
+    + '<div class="row"><span>мышцы <span class="sub">(оценка)</span></span><b class="' + (p12.ln > 0 ? 'ok' : '') + '">+' + n1(p12.ln) + ' кг</b></div>'
+    + (w0 != null ? '<div class="row"><span>вес на весах</span><span>4 нед <b>' + at(4) + '</b> · 8 нед <b>' + at(8) + '</b> · 12 нед <b>' + at(12) + '</b></span></div>' : '')
+    + (when ? '<div class="sub" style="margin:4px 0">' + when + '</div>' : '')
+    + (compact || w0 == null ? '' : rcChart(run, goal));
+}
+let RCW = null;  // «а что если»: {kcal, steps, st} — только на этом телефоне
 function recompCardA() {
   const t = today(), ws = wSorted(), last = ws[ws.length - 1];
   const str = rcStrength(), wa = rcWaist();
   const eat7 = []; for (let i = 1; i <= 7; i++) { const r = dayRows(dAdd(t, -i)); if (r.length) eat7.push(sumRows(r).k); }
   const kcal = eat7.length >= 3 ? eat7.reduce((a, b) => a + b, 0) / eat7.length : CFG.kcal;
   const days28 = IDX.filter(d => Date.parse(d) >= Date.parse(t) - 28 * 864e5 && (LOG[d].ex || []).some(x => setsOf(x).length)).length, perWk = days28 / 4;
-  const trF = perWk >= 2 ? 1 : (perWk >= 1 ? 0.6 : 0), sF = !str || str.sig == null ? 0.5 : (str.sig > 0 ? 1 : (str.sig === 0 ? 0.4 : 0));
-  const lean = def => RC_LEAN_BASE * trF * sF * (def <= 300 ? 1 : (def <= 600 ? 0.6 : 0.3));
-  const tr0 = rcTrend(0), L0 = lean(tr0 && tr0.realTdee ? tr0.realTdee - kcal : CFG.tdee - kcal), tr = rcTrend(L0);
+  const sF = !str || str.sig == null ? 0.5 : (str.sig > 0 ? 1 : (str.sig === 0 ? 0.4 : 0));
+  const lean = (def, pw) => RC_LEAN_BASE * (pw >= 2 ? 1 : (pw >= 1 ? 0.6 : 0)) * sF * (def <= 300 ? 1 : (def <= 600 ? 0.6 : 0.3));
+  const tr0 = rcTrend(0), L0 = lean(tr0 && tr0.realTdee ? tr0.realTdee - kcal : CFG.tdee - kcal, perWk), tr = rcTrend(L0);
   const m7 = []; for (let i = 0; i < 7; i++) m7.push(maint(dAdd(t, -i)));
   const tdee = tr && tr.realTdee ? Math.max(tr.modelTdee - 500, Math.min(tr.modelTdee + 500, tr.realTdee)) : m7.reduce((a, b) => a + b, 0) / 7;
-  const def = tdee - kcal, L = lean(def);
+  const def = tdee - kcal, L = lean(def, perWk), w0 = last ? avg7(last[0]) : null;
+  const goal = CFG.goalW != null ? CFG.goalW : (w0 != null ? Math.round((w0 - 2) * 2) / 2 : null);
+  const st7 = []; for (let i = 1; i <= 7; i++) { const v = stepsOf(dAdd(t, -i)); if (v != null) st7.push(v); }
+  const steps = st7.length ? Math.round(st7.reduce((a, b) => a + b, 0) / st7.length / 100) * 100 : CFG.stepsBase;
   // вердикт
   const wS = tr ? tr.perWk : null, wD = wS == null ? null : (wS < -0.07 ? -1 : (wS > 0.07 ? 1 : 0));
   const waD = wa.delta == null || wa.days < 10 ? null : (wa.delta <= -1 ? -1 : (wa.delta >= 1 ? 1 : 0)), sD = str ? str.sig : null;
@@ -1282,32 +1319,45 @@ function recompCardA() {
   else if (wD > 0 && waD === 1) { v = '⚠ Вес и талия растут — набор жира. Проверь калории.'; cls = 'warn'; }
   else if (wD > 0 && (sD === 1 || waD === -1)) { v = '💪 Вес растёт, но ' + (waD === -1 ? 'талия уходит' : 'сила растёт') + ' — скорее мышцы и вода, не жир.'; cls = ''; }
   else { v = '⚠ Вес растёт — проверь калории и цикл (вода)'; cls = 'warn'; }
-  let w = last ? avg7(last[0]) : null, fat = 0, ln = 0; const pts = [];
-  for (let k = 1; k <= 12; k++) { const df = (-def * 7 - 1800 * L) / 7700; fat += df; ln += L; if (w != null) w += df + L; pts.push(w); }
-  const at = k => pts[k - 1] != null ? n1(pts[k - 1]) : '—';
-  return '<div class="card" data-bc="r"><h2>💪 Рекомпозиция</h2>'
+  // «а что если»
+  if (!RCW) { try { RCW = JSON.parse(pref.get('rwhat', 'null')); } catch (e) {} }
+  const base = {kcal: Math.round(kcal / 50) * 50, steps, st: Math.round(perWk * 2) / 2}, sc = Object.assign({}, base, RCW || {});
+  const changed = sc.kcal !== base.kcal || sc.steps !== base.steps || sc.st !== base.st;
+  const W = w0 || 60, sTdee = tdee + (sc.steps - steps) * 0.035 * W / 83 + (sc.st - perWk) * 2.5 * W * 0.75 / 7, sDef = sTdee - sc.kcal;
+  const SL = [['kcal', 'Калории в день', 1200, 2600, 50, ' ккал'], ['steps', 'Шаги в день', 0, 20000, 500, ''], ['st', 'Силовых в неделю', 0, 6, 0.5, '']];
+  let open = false; try { open = pref.get('rwopen', '0') === '1'; } catch (e) {}
+  return '<div class="card" data-bc="r"><h2>💪 Рекомпозиция и прогноз</h2>'
     + '<div style="font-size:16px;font-weight:600;margin:4px 0" class="' + cls + '">' + v + '</div>'
-    + '<div class="g3 sub" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:12px"><span>⚖️ вес ' + ar(wD) + (wS != null ? ' ' + (wS > 0 ? '+' : '') + n2(wS) + '/нед' : '') + '</span><span>📏 талия ' + ar(waD) + (wa.delta != null ? ' ' + (wa.delta > 0 ? '+' : '') + n1(wa.delta) + ' см' : '') + '</span><span>🏋️ сила ' + ar(sD) + (str && str.sig != null ? ' ' + str.up + '↑/' + str.dn + '↓' : '') + '</span></div>'
+    + '<div class="sub" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:12px"><span>⚖️ вес ' + ar(wD) + (wS != null ? ' ' + (wS > 0 ? '+' : '') + n2(wS) + '/нед' : '') + '</span><span>📏 талия ' + ar(waD) + (wa.delta != null ? ' ' + (wa.delta > 0 ? '+' : '') + n1(wa.delta) + ' см' : '') + '</span><span>🏋️ сила ' + ar(sD) + (str && str.sig != null ? ' ' + str.up + '↑/' + str.dn + '↓' : '') + '</span></div>'
     + (wa.n < 2 ? '<div class="sub" style="margin-top:4px">Для точности нужны замеры талии раз в неделю — вкладка 📏 Замеры.</div>' : '')
     + '<div style="border-top:1px dashed var(--line);margin:10px 0 8px"></div>'
-    + '<div class="sub">Прогноз сам: ешь в среднем ≈ <b>' + fmtN(Math.round(kcal)) + '</b> ккал, расход ≈ <b>' + fmtN(Math.round(tdee / 10) * 10) + '</b>' + (tr && tr.realTdee ? ' (подстроен под твой реальный вес)' : '') + ', силовых ' + n1(perWk) + ' в неделю.</div>'
-    + '<div class="row" style="margin-top:6px"><span>' + (def >= 0 ? 'Дефицит' : 'Профицит') + '</span><b class="' + (def >= 0 ? 'ok' : 'warn') + '">' + fmtN(Math.round(Math.abs(def))) + ' ккал/день</b></div>'
-    + '<div class="row"><span>за 12 недель: жир</span><b class="ok">' + (fat <= 0 ? '−' : '+') + n1(Math.abs(fat)) + ' кг</b></div>'
-    + '<div class="row"><span>мышцы <span class="sub">(оценка)</span></span><b class="' + (ln > 0 ? 'ok' : '') + '">+' + n1(ln) + ' кг</b></div>'
-    + (w != null ? '<div class="row"><span>вес на весах</span><span>4 нед <b>' + at(4) + '</b> · 8 нед <b>' + at(8) + '</b> · 12 нед <b>' + at(12) + '</b></span></div>' : '')
-    + '<div class="sub" style="margin-top:6px">Весы могут стоять, а тело — меняться: килограмм жира ≈ 7 700 ккал, килограмм мышц ≈ 1 800. Поэтому главное здесь — талия и сила, а не вес. И вес у девушек гуляет на 1–2 кг по циклу — сравнивай с тем же днём цикла.</div>'
-    + '<details style="margin-top:6px"><summary class="sub">Как считается</summary><div class="sub">Вес — средняя за 7 дней, наклон за 4 недели. Еда — из дневника. Расход — поддержка из Целей ± шаги, подогнанный под реальный вес (не больше ±500). Сила — по каждому упражнению последняя тренировка против предыдущей (резинки, потом повторы). Прирост мышц — оценка: потолок ≈0,35 кг/мес, меньше при большом дефиците, редких тренировках и без роста силы.</div></details></div>';
+    + '<div class="sub">Считается сам: если дальше как последние недели — ешь ≈ <b>' + fmtN(Math.round(kcal)) + '</b> ккал, ≈ <b>' + fmtN(steps) + '</b> шагов в день, силовых <b>' + n1(perWk) + '</b> в неделю. Расход ≈ <b>' + fmtN(Math.round(tdee / 10) * 10) + '</b>' + (tr && tr.realTdee ? ' (подстроен под твой реальный вес)' : '') + '.</div>'
+    + (goal != null ? '<div class="row" style="margin-top:6px;align-items:center"><span>🎯 Цель по весу</span><span style="display:flex;gap:10px;align-items:center"><button data-rg="-0.5" style="padding:4px 14px">−</button><b>' + n1(goal) + ' кг</b><button data-rg="0.5" style="padding:4px 14px">+</button></span></div>' : '')
+    + rcBlock(def, L, w0, goal, false)
+    + '<details id="rc-what"' + (open ? ' open' : '') + ' style="margin-top:10px"><summary><b>🔧 А что если…</b> <span class="sub">— поменять еду, шаги, тренировки</span></summary>'
+    + '<div class="sub" style="margin:6px 0">Двигай — увидишь, как изменится прогноз. На основной прогноз выше не влияет.</div>'
+    + SL.map(([k, l, a, b, s, u]) => '<div><div class="row"><span>' + l + (sc[k] !== base[k] ? ' <span class="sub">(сейчас ' + (k === 'st' ? n1(base[k]) : fmtN(base[k])) + ')</span>' : '') + '</span><b id="rw-' + k + '">' + (k === 'st' ? n1(sc[k]) : fmtN(sc[k])) + u + '</b></div><input type="range" data-rw="' + k + '" min="' + a + '" max="' + b + '" step="' + s + '" value="' + sc[k] + '" style="width:100%;accent-color:var(--acc)"></div>').join('')
+    + '<div id="rw-out" style="margin-top:6px">' + (changed ? '<div class="sub"><b>С этими изменениями:</b></div>' + rcBlock(sDef, lean(sDef, sc.st), w0, goal, true) : '<div class="sub">Пока ничего не меняла — совпадает с прогнозом выше.</div>') + '</div>'
+    + (changed ? '<button class="ghost" data-rwr="1">↺ Вернуть мои данные</button>' : '') + '</details>'
+    + '<div class="sub" style="margin-top:8px">Весы могут стоять, а тело — меняться: килограмм жира ≈ 7 700 ккал, килограмм мышц ≈ 1 800. Поэтому главное здесь — талия и сила, а не вес. И вес у девушек гуляет на 1–2 кг по циклу — сравнивай с тем же днём цикла.</div>'
+    + '<details style="margin-top:6px"><summary class="sub">Как считается</summary><div class="sub">Вес — средняя за 7 дней, наклон за 4 недели. Еда — из дневника, шаги — телефон + дорожка. Расход — поддержка из Целей ± шаги, подогнанный под реальный вес (не больше ±500). Сила — по каждому упражнению последняя тренировка против предыдущей (резинки, потом повторы). Прирост мышц — оценка: потолок ≈0,35 кг/мес, меньше при большом дефиците, редких тренировках и без роста силы. «А что если»: шаг ≈0,025 ккал при 60 кг, силовая ≈3,5 MET × 45 мин.</div></details></div>';
 }
 document.addEventListener('click', async e => {
   if (TAB !== 'body') return;
   const bt = e.target.closest('[data-bt]'); if (bt) { pref.set('btab', bt.dataset.bt); hap(); render(); window.scrollTo(0, 0); return; }
+  const rg = e.target.closest('[data-rg]'); if (rg) { const ws = wSorted(), w0 = ws.length ? avg7(ws[ws.length - 1][0]) : 60, cur = CFG.goalW != null ? CFG.goalW : Math.round((w0 - 2) * 2) / 2;
+    CFG.goalW = Math.max(40, Math.min(120, Math.round((cur + Number(rg.dataset.rg)) * 2) / 2)); await setJ('cfg', CFG); hap(); render(); return; }
+  if (e.target.closest('[data-rwr]')) { RCW = null; pref.set('rwhat', 'null'); hap(); render(); return; }
   const b = e.target.closest('[data-bx="msave"],[data-bx="mdel"]'); if (!b) return;
   if (b.dataset.bx === 'msave') { const w = rnum($('m-w').value), h = rnum($('m-h').value);
     if (w == null && h == null) return toast('Впиши талию или бёдра'); if ((w != null && !(w > 40 && w < 200)) || (h != null && !(h > 50 && h < 200))) return toast('Проверь сантиметры');
     MEASA = MEASA.filter(x => x[0] !== mDay); MEASA.push([mDay, w, h]); await setJ('meas', MEASA); hap('ok'); render(); toast('Замер ' + dmy(mDay) + ' записан'); return; }
   if (b.dataset.bx === 'mdel') { if (!(await ask('Удалить замер за ' + dmy(mDay) + '?'))) return; MEASA = MEASA.filter(x => x[0] !== mDay); await setJ('meas', MEASA); render(); }
 });
-document.addEventListener('change', e => { if (TAB === 'body' && e.target.id === 'm-d' && e.target.value) { mDay = e.target.value; render(); } });
+document.addEventListener('change', e => { if (TAB === 'body' && e.target.id === 'm-d' && e.target.value) { mDay = e.target.value; render(); } if (TAB === 'body' && e.target.dataset && e.target.dataset.rw) { const y = window.scrollY; render(); window.scrollTo(0, y); } });
+document.addEventListener('input', e => { const k = TAB === 'body' && e.target.dataset && e.target.dataset.rw; if (!k) return; RCW = Object.assign({}, RCW || {}, {[k]: Number(e.target.value)}); pref.set('rwhat', JSON.stringify(RCW));
+  const el = $('rw-' + k); if (el) el.textContent = (k === 'st' ? n1(RCW[k]) : fmtN(RCW[k])) + (k === 'kcal' ? ' ккал' : ''); });
+document.addEventListener('toggle', e => { if (e.target.id === 'rc-what') pref.set('rwopen', e.target.open ? '1' : '0'); }, true);
 
 /* ================= отрисовка ================= */
 function renderGym(){ render(); }
