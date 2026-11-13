@@ -161,6 +161,10 @@ small.low{color:var(--warn)} small.ok{color:var(--ok)} small.hi{color:var(--acc)
 .wdots .ok i{background:var(--ok);color:#fff}.wdots .over i{background:var(--bad);color:#fff}.wdots .now i{background:var(--acc2);color:var(--hastx)}
 .fr{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;text-align:left;background:transparent;border-radius:0;border-bottom:1px solid var(--line);padding:9px 2px;font-size:14px}
 .fr small{color:var(--hint);font-size:12px}
+.tg{display:grid;grid-template-columns:1.25fr 1fr 1fr 1fr;gap:4px;margin-top:3px}
+.tg input{padding:7px 6px;text-align:center;min-width:0}
+.tgh{display:grid;grid-template-columns:1.25fr 1fr 1fr 1fr;gap:4px;font-size:11px;color:var(--hint);text-align:center;margin-top:8px}
+.tday{margin-top:9px;font-size:13px}.tday small{color:var(--hint)}
 .calc{margin:8px 0;font-size:15px}
 .seg.s4{grid-template-columns:repeat(4,1fr)}
 #sheet{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.35);display:flex;align-items:flex-end}
@@ -202,7 +206,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 /* ================= хранилище: облако Telegram (≤4096 символов на ключ), иначе память браузера ================= */
 const TG = window.Telegram && window.Telegram.WebApp;
-const APP_V = '12.11j';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
+const APP_V = '13.11a';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
 const CS = TG && TG.CloudStorage && TG.isVersionAtLeast && TG.isVersionAtLeast('6.9') ? TG.CloudStorage : null;
 const PART = 4000;
 const K_EX='exlib', K_TPL='tpls', K_DAYS='days', K_DRAFT='draft3';   // ключи v3 (старые ex/tpl/idx/cur от v1–v2 не трогаем)
@@ -780,7 +784,12 @@ function foodDay() {
     + '<div class="mac">' + [['Белки', s.p, t.p], ['Жиры', s.f, t.f], ['Углеводы', s.c, t.c]].map(([l, v, tt]) => '<div><span>' + l + ' <b>' + Math.round(v) + '</b>/' + tt + '</span>' + bar(v, tt, l === 'Белки' ? 'pr' : '') + '</div>').join('') + '</div>'
     + '<div class="left">' + (left >= 0 ? 'Осталось: <b>' + Math.round(left) + ' ккал</b>' : 'Сверх цели: <b class="bad">' + Math.round(-left) + ' ккал</b>') + ' · Б ' + lm(s.p, t.p) + ' · Ж ' + lm(s.f, t.f) + ' · У ' + lm(s.c, t.c) + ' г</div>'
     + '<div class="row" style="margin-top:8px"><span>🔥 Серия: <b>' + stk + '</b> ' + plural(stk, 'день', 'дня', 'дней') + '</span><span class="sub">' + (wd_.n ? 'Неделя: ' + (wd_.def >= 0 ? '−' + wd_.def + ' ккал' : '+' + (-wd_.def) + ' ккал') : '') + '</span></div>'
-    + weekDots() + '</div>';
+    + weekDots() + '<button class="ghost" data-fx="tots" style="margin-top:6px">📋 Перенести итоги дней (только КБЖУ)</button></div>';
+  const tr = rows.filter(x => x.tot), fr0 = rows.filter(x => !x.tot);
+  if (tr.length) { const ts = sumRows(tr);
+    h += '<div class="card"><div class="row"><h3 style="margin:0">📋 Итог дня</h3><span class="sub">перенесён без продуктов</span></div>'
+      + '<button class="fr" data-fx="tots"><span>КБЖУ за день<small> · Б ' + Math.round(ts.p) + ' · Ж ' + Math.round(ts.f) + ' · У ' + Math.round(ts.c) + '</small></span><span>' + Math.round(ts.k) + '<small> ккал</small></span></button>'
+      + (fr0.length ? '<div class="phint warn">⚠ В этот день есть и продукты (' + Math.round(sumRows(fr0).k) + ' ккал), и итог — они складываются. Если итог уже включает эту еду, удали одно из двух.</div>' : '') + '</div>'; }
   for (const [m, l] of MEALS) {
     const mr = rows.map((x, i) => [x, i]).filter(([x]) => x.m === m), ms = sumRows(mr.map(z => z[0]));
     h += '<div class="card"><div class="row"><h3 style="margin:0">' + l + '</h3><span class="sub">' + (mr.length ? Math.round(ms.k) + ' ккал · Б' + Math.round(ms.p) + ' Ж' + Math.round(ms.f) + ' У' + Math.round(ms.c) : '') + '</span></div>'
@@ -973,8 +982,25 @@ function sheetOpen(o) { SH = o; $('sheet').hidden = false; document.body.style.o
 function sheetClose() { SH = null; $('sheet').hidden = true; document.body.style.overflow = ''; }
 const mealName = m => (MEALS.find(x => x[0] === m) || [0, ''])[1];
 function calcLine(x, g) { g = rnum(g); if (!(g > 0)) return '<span class="sub">введи граммы</span>'; return '<b>' + Math.round(x.k * g / 100) + ' ккал</b> · Б ' + n1(x.p * g / 100) + ' · Ж ' + n1(x.f * g / 100) + ' · У ' + n1(x.c * g / 100); }
+function totsRead() {  // сохранить введённое в черновик шторки, чтобы листание недель его не теряло
+  document.querySelectorAll('[data-td]').forEach(i => { const d = i.dataset.td; SH.dr[d] = SH.dr[d] || {}; SH.dr[d][i.dataset.tk] = i.value.trim(); });
+}
+function totsDays(end) { const a = []; for (let i = 6; i >= 0; i--) a.push(dAdd(end, -i)); return a; }
+async function totsOpen(end) { for (const d of totsDays(end)) await weekOf(d); if (SH && SH.mode === 'tots') { totsRead(); SH.end = end; renderSheet(); } else sheetOpen({mode: 'tots', end, dr: {}}); }
 function renderSheet() {
   const s = SH, el = $('sheet-b'); if (!s) return;
+  if (s.mode === 'tots') {
+    const days = totsDays(s.end), v = (d, k) => { if (s.dr[d] && s.dr[d][k] != null) return s.dr[d][k]; const t = dayRows(d).filter(x => x.tot); return t.length ? n1(sumRows(t)[k]) : ''; };
+    el.innerHTML = '<div class="row"><h3 style="margin:0">📋 Итоги дней</h3><button class="ghost" data-sx="close">✕</button></div>'
+      + '<div class="sub">Перенос из другого приложения: только цифры за день, без продуктов. Ккал можно не писать — посчитаю из БЖУ (Б×4 + Ж×9 + У×4). Стереть строку — итог дня удалится.</div>'
+      + '<div class="dnav2"><button data-sx="tstep" data-a="-7">‹</button><label class="dl2">' + esc(dmy(days[0])) + ' — ' + esc(dmy(days[6])) + '<small>7 дней</small></label><button data-sx="tstep" data-a="7"' + (s.end >= today() ? ' disabled' : '') + '>›</button></div>'
+      + '<div class="tgh"><span>ккал</span><span>Б, г</span><span>Ж, г</span><span>У, г</span></div>'
+      + days.map(d => { const fo = dayRows(d).filter(x => !x.tot);
+        return '<div class="tday"><b>' + esc(wd(d)) + ', ' + esc(dmy(d)) + '</b>' + (d === today() ? ' <small>· сегодня</small>' : '') + (fo.length ? ' <small>· уже есть еда: ' + Math.round(sumRows(fo).k) + ' ккал</small>' : '') + '</div>'
+          + '<div class="tg">' + ['k', 'p', 'f', 'c'].map(k => '<input inputmode="decimal" data-td="' + d + '" data-tk="' + k + '" value="' + esc(v(d, k)) + '" placeholder="' + (k === 'k' ? 'ккал' : '—') + '">').join('') + '</div>'; }).join('')
+      + '<button class="pri big" data-sx="tsave">Сохранить итоги</button>';
+    return;
+  }
   if (s.mode === 'search') {
     const {mine, base, rec} = searchList(s.q || ''), isCode = /^\d{8,14}$/.test((s.q || '').trim());
     const li = (x, k) => '<button class="fr" data-sx="pick" data-k="' + k + '" data-a="' + esc(x.id) + '"><span>' + esc(x.n) + (x.b ? '<small> · ' + esc(x.b) + '</small>' : '') + '<small class="sub"><br>' + Math.round(x.k) + ' ккал · Б' + n1(x.p) + ' Ж' + n1(x.f) + ' У' + n1(x.c) + ' / 100 г</small></span>' + (x.last ? '<span class="sub">' + n1(x.last) + ' г</span>' : '') + '</button>';
@@ -1059,6 +1085,7 @@ document.addEventListener('click', async e => {
   if (d.fv) { fv = d.fv; pref.set('fv', fv); render(); hap(); return; }
   if (d.fx === 'day') { const nd = dAdd(fDay, +d.a); if (nd > today()) return; fDay = nd; await weekOf(fDay); render(); hap(); return; }
   if (d.fx === 'add') { sheetOpen({mode: 'search', meal: d.a, q: ''}); return; }
+  if (d.fx === 'tots') { await totsOpen(fDay); return; }
   if (d.fx === 'edit') { const x = dayRows(fDay)[+d.a]; const p = PRODS.find(y => y.id === x.pid) || {n: x.n, k: x.k / x.g * 100, p: x.p / x.g * 100, f: x.f / x.g * 100, c: x.c / x.g * 100, fib: (x.fib || 0) / x.g * 100};
     sheetOpen({mode: 'edit', idx: +d.a, item: Object.assign({}, p, {last: null}), g: x.g}); return; }
   if (d.fx === 'newprod') { sheetOpen({mode: 'new'}); return; }
@@ -1075,6 +1102,19 @@ document.addEventListener('click', async e => {
   if (d.sx === 'g') { $('s-g').value = d.a; $('s-calc').innerHTML = calcLine(SH.item, d.a); hap(); return; }
   if (d.sx === 'meal') { SH.meal = d.a; SH.g = rnum($('s-g').value); renderSheet(); return; }
   if (d.sx === 'back') { SH.mode = 'search'; renderSheet(); return; }
+  if (d.sx === 'tstep') { const ne = dAdd(SH.end, +d.a); await totsOpen(ne > today() ? today() : ne); hap(); return; }
+  if (d.sx === 'tsave') { totsRead(); const ch = [];
+    for (const [day, o] of Object.entries(SH.dr)) {
+      const old = dayRows(day).filter(x => x.tot), os = old.length ? sumRows(old) : null, num = k => rnum(o[k]);
+      const empty = ['k', 'p', 'f', 'c'].every(k => !o[k]);
+      if (empty) { if (old.length) ch.push([day, null]); continue; }
+      const p = num('p') || 0, f = num('f') || 0, c = num('c') || 0; let k = num('k'); if (k == null) k = Math.round(p * 4 + f * 9 + c * 4);
+      if (!(k > 0 && k < 10000) || p < 0 || f < 0 || c < 0 || p > 600 || f > 600 || c > 1500) return toast('Проверь цифры за ' + dmy(day));
+      if (os && r1(os.k) === r1(k) && r1(os.p) === r1(p) && r1(os.f) === r1(f) && r1(os.c) === r1(c)) continue;
+      ch.push([day, {id: uid(), m: 't', tot: 1, n: 'Итог дня (перенос)', g: 0, k: r1(k), p: r1(p), f: r1(f), c: r1(c), fib: 0}]); }
+    try { for (const [day, row] of ch) { const rows = dayRows(day).filter(x => !x.tot); if (row) rows.push(row); await saveDay(day, rows); } }
+    catch (e) { return toast('Не сохранилось: ' + (e && e.message || e)); }
+    hap('ok'); sheetClose(); render(); toast(ch.length ? 'Сохранено дней: ' + ch.length : 'Изменений нет'); return; }
   if (d.sx === 'add') { await addEntry(); return; }
   if (d.sx === 'toRec') { const g = rnum($('s-g').value); if (!(g > 0)) return toast('Введи граммы'); const x = SH.item, pr = prodFrom(x);
     RED.ing.push({n: pr.n, pid: pr.id, k: +pr.k, p: +pr.p, f: +pr.f, c: +pr.c, fib: +pr.fib || 0, g}); await setJ('prods', PRODS); sheetClose(); render(); hap('ok'); return; }
