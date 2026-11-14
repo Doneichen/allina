@@ -192,11 +192,15 @@ small.low{color:var(--warn)} small.ok{color:var(--ok)} small.hi{color:var(--acc)
 .chip.was{background:transparent;border:1px solid var(--line);color:var(--hint)}
 .chip.nx{background:var(--ok);color:#fff}
 textarea{min-height:70px;resize:vertical}
+.ldi{display:inline-block;width:11px;height:11px;margin-right:5px;vertical-align:-1px;box-sizing:border-box;font-style:normal;font-size:12px;line-height:11px;text-align:center}
+.ldi.ldi-spin{border:2px solid var(--line);border-top-color:var(--acc);border-radius:50%;animation:ldi .8s linear infinite}
+.ldi.ldi-ok::before{content:'';display:block;width:4px;height:8px;margin:0 auto;border:solid var(--ok);border-width:0 2px 2px 0;transform:translateY(-1px) rotate(45deg)}.ldi.ldi-err{border-radius:50%;background:var(--warn);color:#fff;font-weight:800;font-size:9px;line-height:11px}.ldi.ldi-err::before{content:'!'}
+@keyframes ldi{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
-<header><div class="brand"><b>AllinA</b><button id="setbtn" aria-label="настройки" style="background:transparent;padding:2px 4px;font-size:17px;align-self:center;position:relative">⚙️<i id="setdot" style="display:none;position:absolute;top:2px;right:0;width:8px;height:8px;border-radius:50%;background:var(--bad,#e5484d)"></i></button><span>твой дневник</span><div class="sp"></div><span id="store" class="sub"></span><button id="thbtn" aria-label="тема">🎨</button></div><div class="thm" id="thm"></div><div id="tabs"></div><div id="bkbar" style="display:none"></div></header><div id="setp" style="display:none;position:fixed;inset:0;z-index:60;background:var(--bg);overflow:auto;padding:14px 14px 90px"></div>
-<main id="app"><div class="card sub">Загрузка…</div></main>
+<header><div class="brand"><b>AllinA</b><button id="setbtn" aria-label="настройки" style="background:transparent;padding:2px 4px;font-size:17px;align-self:center;position:relative">⚙️<i id="setdot" style="display:none;position:absolute;top:2px;right:0;width:8px;height:8px;border-radius:50%;background:var(--bad,#e5484d)"></i></button><span>твой дневник</span><div class="sp"></div><span class="sub"><i id="ldi" class="ldi ldi-spin" title="загружаю…"></i><span id="store"></span></span><button id="thbtn" aria-label="тема">🎨</button></div><div class="thm" id="thm"></div><div id="tabs"></div><div id="bkbar" style="display:none"></div></header><div id="setp" style="display:none;position:fixed;inset:0;z-index:60;background:var(--bg);overflow:auto;padding:14px 14px 90px"></div>
+<main id="app"><div class="card sub"><i class="ldi ldi-spin"></i>Загрузка…</div></main>
 <div id="timer"><span>Отдых</span><b id="tsec">0:00</b><div class="sp"></div><button id="tplus">+30 с</button><button id="tstop">✕</button></div>
 <div class="toast" id="toast"></div>
 <div id="sheet" hidden><div class="sheet-in" id="sheet-b"></div></div>
@@ -214,18 +218,24 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 /* ================= хранилище: облако Telegram (≤4096 символов на ключ), иначе память браузера ================= */
 const TG = window.Telegram && window.Telegram.WebApp;
-const APP_V = '13.11g';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
+const APP_V = '14.11c';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
 const CS = TG && TG.CloudStorage && TG.isVersionAtLeast && TG.isVersionAtLeast('6.9') ? TG.CloudStorage : null;
 const PART = 4000;
 const K_EX='exlib', K_TPL='tpls', K_DAYS='days', K_DRAFT='draft3';   // ключи v3 (старые ex/tpl/idx/cur от v1–v2 не трогаем)
 const LS = { get(k){ try{ return localStorage.getItem('allina_'+k); }catch(e){ return null; } }, set(k,v){ try{ localStorage.setItem('allina_'+k,v); }catch(e){} }, del(k){ try{ localStorage.removeItem('allina_'+k); }catch(e){} } };
 const pref = { get(k,d){ try{ const v=localStorage.getItem('allina_p_'+k); return v==null?d:v; }catch(e){ return d; } }, set(k,v){ try{ localStorage.setItem('allina_p_'+k,v); }catch(e){} } };
+// 14.11c: значок в шапке в реальном времени — крутится, пока идёт обмен с облаком (загрузка/сохранение); ✓ — всё в облаке; ⚠ — не получилось
+let LDN = 1, LDT = null;  // 1 = держим кружок до конца стартовой загрузки
+const ldi = (st, t) => { const i = document.getElementById('ldi'); if (i) { i.className = 'ldi ldi-' + st; i.title = t; } };
+const ldEnd = () => { if (--LDN > 0) return; clearTimeout(LDT); LDT = setTimeout(() => { if (LDN <= 0) ldi('ok', CS ? 'всё в облаке' : 'сохранено в телефоне'); }, 250); };
+const ldTrack = pr => { LDN++; clearTimeout(LDT); ldi('spin', 'обмен с облаком…');
+  return pr.then(v => { ldEnd(); return v; }, e => { LDN = Math.max(0, LDN - 1); clearTimeout(LDT); ldi('err', 'облако не ответило: ' + (e && e.message || e)); throw e; }); };
 function rawGet(keys){ if(!keys.length) return Promise.resolve({});
   if(!CS){ const o={}; keys.forEach(k=>o[k]=LS.get(k)||''); return Promise.resolve(o); }
-  return new Promise((res,rej)=>CS.getItems(keys,(err,v)=>err?rej(err):res(v||{}))); }
-function rawSet(k,v){ if(!CS){ LS.set(k,v); return Promise.resolve(); } return new Promise((res,rej)=>CS.setItem(k,v,err=>err?rej(err):res())); }
+  return ldTrack(new Promise((res,rej)=>CS.getItems(keys,(err,v)=>err?rej(err):res(v||{})))); }
+function rawSet(k,v){ if(!CS){ LS.set(k,v); return Promise.resolve(); } return ldTrack(new Promise((res,rej)=>CS.setItem(k,v,err=>err?rej(err):res()))); }
 function rawDel(keys){ if(!keys.length) return Promise.resolve(); if(!CS){ keys.forEach(k=>LS.del(k)); return Promise.resolve(); }
-  return new Promise((res,rej)=>CS.removeItems(keys,err=>err?rej(err):res())); }
+  return ldTrack(new Promise((res,rej)=>CS.removeItems(keys,err=>err?rej(err):res()))); }
 async function getJ(key, def){ const v=(await rawGet([key]))[key]; if(!v) return def; let s=v;
   if(v.charAt(0)==='§'){ const n=+v.slice(1), ks=[]; for(let i=1;i<=n;i++) ks.push(key+'__'+i); const p=await rawGet(ks); s=ks.map(k=>p[k]||'').join(''); }
   try{ return JSON.parse(s); }catch(e){ return def; } }
@@ -823,24 +833,33 @@ function readTpl(){ const t=TPL[tplEd]; if(!t) return; const nm=$('t-name'); if(
 /* ================= Мышцы ================= */
 const dAdd=(d,n)=>{ const t=new Date(d+'T12:00:00'); t.setDate(t.getDate()+n); return ymd(t); };
 const monOf=d=>dAdd(d,-((new Date(d+'T12:00:00').getDay()+6)%7));
-function musAgg(a,b){ const S={}, by={}, miss={};
-  rowsAll().forEach(r=>{ if(r.d<a || r.d>b) return; const n=setsOf(r).filter(v=>rnum(v)).length; if(!n) return;
+// 14.11: подход весит по RPE — 7–10 → 1, 6 → 0,5, ≤5 → 0 (разминка); RPE не записан → 1, но помечается.
+// Границы — наше правило; направление: ближе к отказу — больше роста (Robinson 2024), норма 10–20 — из исследований с тяжёлыми подходами.
+const rpeW = v => v==null ? 1 : v>=7 ? 1 : v>=6 ? 0.5 : 0;
+function musAgg(a,b){ const S={}, R={}, by={}, miss={}; let raw=0, noR=0;
+  rowsAll().forEach(r=>{ if(r.d<a || r.d>b) return;
+    const P=String(r.rpe==null?'':r.rpe).split('/').map(v=>rnum(v.trim())).filter(v=>v!=null);
+    const sets=setsOf(r).filter(v=>rnum(v)).map((v,j)=>P.length===1?P[0]:(P[j]!=null?P[j]:null)), n=sets.length; if(!n) return;
+    const w=sets.reduce((t,q)=>t+rpeW(q),0), nr=sets.filter(q=>q==null).length;
     const e=exInfo(r.ex), m=e&&e.mus; if(!m || !Object.keys(m).length){ miss[r.ex]=(miss[r.ex]||0)+n; return; }
-    Object.entries(m).forEach(([k,c])=>{ S[k]=(S[k]||0)+n*c; const o=(by[k]=by[k]||{}), x=(o[r.ex]=o[r.ex]||{n:0,c}); x.n+=n; }); });
-  return {S,by,miss}; }
+    raw+=n; noR+=nr;
+    Object.entries(m).forEach(([k,c])=>{ S[k]=(S[k]||0)+w*c; R[k]=(R[k]||0)+n*c; const o=(by[k]=by[k]||{}), x=(o[r.ex]=o[r.ex]||{n:0,w:0,nr:0,c,rp:[]}); x.n+=n; x.w+=w; x.nr+=nr;
+      sets.forEach(q=>{ if(q!=null) x.rp.push(q); }); }); });
+  return {S,R,by,miss,raw,noR}; }
 function gymMus(){
   if(musEd!=null) return musEditor(musEd);
   const t=today(), m0=monOf(t);
   const R = gmv==='w1' ? [dAdd(m0,-7), dAdd(m0,-1), 1, dm(dAdd(m0,-7))+'–'+dm(dAdd(m0,-1))]
           : gmv==='w4' ? [dAdd(t,-27), t, 4, dm(dAdd(t,-27))+'–'+dm(t)+' · в среднем за неделю'] : [m0, t, 1, dm(m0)+'–'+dm(t)];
-  const {S,by,miss}=musAgg(R[0],R[1]), div=R[2], [lo,hi]=MUS_TARGET, free=new Set(MUS_FREE);
+  const {S,R:RW,by,miss,raw,noR}=musAgg(R[0],R[1]), div=R[2], [lo,hi]=MUS_TARGET, free=new Set(MUS_FREE);
   const nW=IDX.filter(d=>d>=R[0] && d<=R[1]).length, vals=MUSCLES.map(k=>[k,(S[k]||0)/div]), mx=Math.max(hi+5,...vals.map(v=>v[1]));
   const cls=(k,v)=>free.has(k)?'free':v<lo?'low':v>hi?'hi':'ok', lbl={low:'мало',ok:'норма',hi:'много',free:'без нормы'};
   let h='<div class="seg s3">'+[['w0','Эта неделя'],['w1','Прошлая'],['w4','4 недели']].map(([k,l])=>'<button data-gmv="'+k+'" class="'+(gmv===k?'on':'')+'">'+l+'</button>').join('')+'</div>';
   h+='<div class="sub">'+R[3]+' · '+(nW?'тренировок: '+nW:'тренировок нет')+' · тап по мышце — откуда подходы</div>';
+  if(raw) h+='<div class="sub">Число у мышцы — <b>рабочие</b> подходы (по RPE), «из N» — все подходы.'+(noR?' Без RPE: '+fr(noR/div)+' из '+fr(raw/div)+' подх'+(div>1?'/нед':'')+' — засчитаны целиком.':'')+'</div>';
   h+=vals.map(([k,v])=>{ const c=cls(k,v), open=gMs===k;
-    const det=open?'<ul class="kbl">'+(Object.entries(by[k]||{}).sort((a,b)=>b[1].n*b[1].c-a[1].n*a[1].c).map(([e,x])=>'<li>'+esc(e)+' — '+fr(x.n/div)+' подх × '+fr(x.c)+' = <b>'+fr(x.n*x.c/div)+'</b></li>').join('')||'<li>за этот период ни одного подхода</li>')+'</ul>':'';
-    return '<button class="mr'+(v?'':' z')+(open?' on':'')+'" data-ms="'+esc(k)+'"><span>'+esc(k)+'</span><b>'+fr(v)+'</b><small class="'+c+'">'+lbl[c]+'</small><span class="mb"><i class="'+c+'" style="width:'+(v/mx*100).toFixed(1)+'%"></i>'+(free.has(k)?'':'<span class="tg" style="left:'+(lo/mx*100).toFixed(1)+'%;width:'+((hi-lo)/mx*100).toFixed(1)+'%"></span>')+'</span></button>'+det; }).join('');
+    const det=open?'<ul class="kbl">'+(Object.entries(by[k]||{}).sort((a,b)=>b[1].w*b[1].c-a[1].w*a[1].c).map(([e,x])=>'<li>'+esc(e)+' — '+fr(x.n/div)+' подх'+(x.w!==x.n?' (рабочих '+fr(x.w/div)+')':'')+(x.rp.length?(()=>{ const u=[...new Set(x.rp)].sort((p,q)=>p-q); return ' · RPE '+(u.length>2?fr(u[0])+'–'+fr(u[u.length-1]):u.map(fr).join('–')); })():'')+(x.nr?' · <span class="sub">без RPE: '+fr(x.nr/div)+'</span>':'')+' × '+fr(x.c)+' = <b>'+fr(x.w*x.c/div)+'</b></li>').join('')||'<li>за этот период ни одного подхода</li>')+'</ul>':'';
+    return '<button class="mr'+(v?'':' z')+(open?' on':'')+'" data-ms="'+esc(k)+'"><span>'+esc(k)+((RW[k]||0)/div-v>0.05?' <small class="sub">из '+fr((RW[k]||0)/div)+'</small>':'')+'</span><b>'+fr(v)+'</b><small class="'+c+'">'+lbl[c]+'</small><span class="mb"><i class="'+c+'" style="width:'+(v/mx*100).toFixed(1)+'%"></i>'+(free.has(k)?'':'<span class="tg" style="left:'+(lo/mx*100).toFixed(1)+'%;width:'+((hi-lo)/mx*100).toFixed(1)+'%"></span>')+'</span></button>'+det; }).join('');
   if(nW){ const tplEx=new Set(TPL.flatMap(x=>(x.ex||[]).map(e=>e.n)));
     const how=k=>EX.filter(e=>e.mus && e.mus[k]===1).map(e=>e.n).sort((a,b)=>tplEx.has(b)-tplEx.has(a)).slice(0,2);
     const lag=vals.filter(([k,v])=>!free.has(k) && v<lo).sort((a,b)=>a[1]-b[1]).slice(0,3);
@@ -848,7 +867,7 @@ function gymMus(){
       +(vals.every(([k,v])=>free.has(k)||v<lo)?'<br><span class="sub">Всё ниже '+lo+' — при 2 подходах это ожидаемо. Рост есть и с 4–5 подходами в неделю, просто меньше, чем с 10+.</span>':'')+'</div>'; }
   const ms=Object.keys(miss);
   if(ms.length) h+='<div class="mhint warn">Не знаю, какие мышцы работают в: '+ms.map(n=>'<button class="ghost" data-mused="'+esc(n)+'" style="padding:2px 4px">'+esc(n)+' ✎</button>').join(', ')+'</div>';
-  return h+'<div class="sub" style="margin-top:8px">Подход в основную мышцу ×1, в помогающую ×0,5 (Pelland и соавт., 2024). Зелёная зона — '+lo+'–'+hi+' подходов в неделю (Schoenfeld, Ogborn, Krieger, 2017). Разминка не считается.</div>'
+  return h+'<div class="sub" style="margin-top:8px">Подход в основную мышцу ×1, в помогающую ×0,5 (Pelland и соавт., 2024). Зелёная зона — '+lo+'–'+hi+' подходов в неделю (Schoenfeld, Ogborn, Krieger, 2017). Подход по RPE: 7–10 — целиком, 6 — половина, 5 и ниже — разминка, 0 (границы — наше правило; что тяжёлые подходы растят больше — Robinson и соавт., 2024). Без RPE — целиком.</div>'
     +'<button class="big" data-mused="">✎ Мышцы упражнений</button>';
 }
 function musEditor(n){
@@ -1352,7 +1371,9 @@ let gmode = pref.get('gmode', 'str'), cdT = null, cdAudio = null, cdLock = null;
 const CDN = 'Беговая дорожка';
 const cdNew = () => ({dur: 30, phase: 'idle', rounds: [], speed: '', dist: '', steps: '', note: '', watch: false});
 const cdGet = () => { try { return JSON.parse(pref.get('cardio', 'null')) || cdNew(); } catch (e) { return cdNew(); } };
-const cdSet = c => pref.set('cardio', JSON.stringify(c));
+// 14.11b: таймер дорожки дублируется в облако Telegram — на iPhone память браузера стирается, когда закрываешь мини-приложение,
+// и после возврата таймер пропадал. При запуске берётся более свежая копия (по c.ts).
+const cdSet = c => { c.ts = Date.now(); const s = JSON.stringify(c); pref.set('cardio', s); rawSet('cardio_live', s).catch(() => {}); };
 const mmss = s => Math.floor(s / 60) + ':' + String(Math.max(0, Math.floor(s % 60))).padStart(2, '0');
 function cdLeft(c) { if (c.phase !== 'work' && c.phase !== 'rest') return null; const total = (c.phase === 'rest' ? 10 : c.dur) * 60;
   return Math.max(0, total - ((c.acc || 0) + (c.startAt ? (Date.now() - c.startAt) / 1000 : 0))); }
@@ -1417,7 +1438,7 @@ async function cdSave() {
   const w = LOG[d] ? Object.assign({}, LOG[d]) : {d, tpl: 'Кардио', min: '', rpe: '', note: '', wu: {}, ex: []};
   w.cardio = (w.cardio || []).concat([item]);
   try { await setJ(keyOf(d), w); LOG[d] = w; if (!IDX.includes(d)) { IDX.push(d); IDX.sort(); } await setJ(K_DAYS, IDX); } catch (e) { return toast('Не сохранилось: ' + (e && e.message || e), 4000); }
-  pref.set('cardio', JSON.stringify(cdNew())); cdWake(false); hap('ok'); gv = 'cal'; pref.set('gv', gv); gSel = d; gMonth = d.slice(0, 7); renderGym(); window.scrollTo(0, 0);
+  cdSet(cdNew()); cdWake(false); hap('ok'); gv = 'cal'; pref.set('gv', gv); gSel = d; gMonth = d.slice(0, 7); renderGym(); window.scrollTo(0, 0);
   toast('🏃 Кардио сохранено' + (mins ? ': ' + mins + ' мин' : '') + (addSt > 0 ? ' · +' + fmtN(addSt) + ' шагов к дню → цель ' + target(d).kcal + ' ккал' : ''), 4000);
 }
 const cardioLines = w => (w.cardio || []).map(x => '<div class="exl"><div class="n">🏃 ' + esc(x.name) + '</div><div class="v">' + [x.min ? x.min + ' мин' : '', x.speed ? x.speed + ' км/ч' : '', x.dist ? x.dist + ' км' : '', x.steps ? (x.auto ? '≈' : '') + x.steps + ' шагов' : '', x.kcal ? '≈' + x.kcal + ' ккал' : ''].filter(Boolean).map(esc).join(' · ') + '</div>' + (x.note ? '<div class="nt">' + esc(x.note) + '</div>' : '') + '</div>').join('');
@@ -1437,7 +1458,7 @@ document.addEventListener('click', async e => {
   if (a === 'stop') { if (c.phase === 'work') { const done = Math.floor(((c.acc || 0) + (c.startAt ? (Date.now() - c.startAt) / 1000 : 0)) / 60); if (done > 0) c.rounds.push(done); }
     c.phase = c.rounds.length ? 'done' : 'idle'; c.acc = 0; c.startAt = null; cdSet(c); cdWake(false); renderGym(); return; }
   if (a === 'save') { await cdSave(); return; }
-  if (a === 'reset') { if (!(await ask('Сбросить кардио?'))) return; pref.set('cardio', JSON.stringify(cdNew())); cdWake(false); renderGym(); return; }
+  if (a === 'reset') { if (!(await ask('Сбросить кардио?'))) return; cdSet(cdNew()); cdWake(false); renderGym(); return; }
 }, true);
 
 
@@ -1695,12 +1716,17 @@ function renderGymOnly(){
   $('app').innerHTML = gv==='prog'?earlyCard()+waveCard()+rdChart()+card(gymProg()): gv==='new'?gymNew(): gv==='kb'?card(gymKb()): gv==='mus'?card(gymMus()): gymCal();
 }
 /* ================= таймер отдыха ================= */
+// 14.11c: конец отдыха (tEnd) хранится и в телефоне, и в облаке — закрыла приложение посреди отдыха, вернулась → таймер идёт дальше с того же места
 let tEnd=0, tH=null;
-function startTimer(sec){ tEnd=Date.now()+sec*1000; $('timer').style.display='flex'; tick(); clearInterval(tH); tH=setInterval(tick,250); }
-function stopTimer(){ clearInterval(tH); $('timer').style.display='none'; }
+const tSave = () => { const v = String(tEnd || 0); pref.set('rest_t', v); rawSet('rest_t', v).catch(() => {}); };
+function runTimer(){ $('timer').style.display='flex'; tick(); clearInterval(tH); tH=setInterval(tick,250); }
+function startTimer(sec){ tEnd=Date.now()+sec*1000; tSave(); runTimer(); }
+function stopTimer(){ clearInterval(tH); $('timer').style.display='none'; if(tEnd){ tEnd=0; tSave(); } }
+async function restTimerRestore(){ let v=+pref.get('rest_t','0')||0; try{ const c=+((await rawGet(['rest_t'])).rest_t||0); if(c>v) v=c; }catch(e){} if(v>Date.now()+1000){ tEnd=v; runTimer(); } }
+document.addEventListener('visibilitychange', () => { if (!document.hidden && tEnd) tick(); });
 function tick(){ const left=Math.max(0,Math.round((tEnd-Date.now())/1000)); $('tsec').textContent=Math.floor(left/60)+':'+String(left%60).padStart(2,'0');
   if(left<=0){ stopTimer(); hap('ok'); try{ navigator.vibrate && navigator.vibrate([200,100,200]); }catch(e){} toast('Отдых окончен — следующий подход'); } }
-$('tplus').onclick=()=>{ tEnd+=30000; tick(); };
+$('tplus').onclick=()=>{ tEnd+=30000; tSave(); tick(); };
 $('tstop').onclick=stopTimer;
 
 /* ================= события ================= */
@@ -1829,7 +1855,12 @@ $('nav').onclick=e=>{ const b=e.target.closest('button[data-tab]'); if(!b) retur
 /* ================= старт ================= */
 (async()=>{
   try{ TG && TG.ready(); TG && TG.expand(); }catch(e){}
-  try{ await load(); }catch(e){ $('app').innerHTML='<div class="card">Не удалось загрузить данные: '+esc(e&&e.message||e)+'</div>'; return; }
+  try{ await load(); }catch(e){ LDN=0; ldi('err','не загрузилось'); $('app').innerHTML='<div class="card">Не удалось загрузить данные: '+esc(e&&e.message||e)+'</div>'; return; }
+  try{ const cl=(await rawGet(['cardio_live'])).cardio_live; const o=cl?JSON.parse(cl):null, loc=cdGet();
+    if(o && o.phase && (o.ts||0)>(loc.ts||0)){ pref.set('cardio',cl);
+      if(o.phase!=='idle'){ gmode='cardio'; pref.set('gmode','cardio'); TAB='gym'; pref.set('tab','gym'); gv='new'; pref.set('gv','new'); } } }catch(e){}
+  try{ await restTimerRestore(); }catch(e){}
+  ldEnd();
   render();
   if(SEEDED) toast('Перенесла прошлые тренировки: '+SEEDED+' — смотри «Календарь» и «Прогресс»', 4500);
   setInterval(()=>{ const m=$('w-mins'); if(m && DRAFT && !DRAFT.editing) m.textContent=DRAFT.t1?Math.round((Date.now()-DRAFT.t1)/60000)+' мин':''; }, 30000);
