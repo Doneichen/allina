@@ -218,7 +218,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 /* ================= хранилище: облако Telegram (≤4096 символов на ключ), иначе память браузера ================= */
 const TG = window.Telegram && window.Telegram.WebApp;
-const APP_V = '14.11c';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
+const APP_V = '16.11a';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
 const CS = TG && TG.CloudStorage && TG.isVersionAtLeast && TG.isVersionAtLeast('6.9') ? TG.CloudStorage : null;
 const PART = 4000;
 const K_EX='exlib', K_TPL='tpls', K_DAYS='days', K_DRAFT='draft3';   // ключи v3 (старые ex/tpl/idx/cur от v1–v2 не трогаем)
@@ -1077,6 +1077,40 @@ function stepsChart2(sel) {
   return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '">' + g + '<line x1="' + pd + '" x2="' + W + '" y1="' + Y(base).toFixed(1) + '" y2="' + Y(base).toFixed(1) + '" style="stroke:var(--tx)" stroke-dasharray="4 4" opacity=".45"/>' + bars
     + '<text x="' + pd + '" y="' + (H - 4) + '" font-size="11" style="fill:var(--hint)">' + dmy(days[0]) + '</text><text x="' + W + '" y="' + (H - 4) + '" font-size="11" text-anchor="end" style="fill:var(--hint)">' + dmy(days[n - 1]) + '</text></svg>';
 }
+// 16.11a: отчёт за период — текстом по дням (вес, ккал/БЖУ против цели, шаги, тренировки, замеры), чтобы скинуть в чат
+const WD2 = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+async function reportTxt(n) {
+  const t = today(), d0 = dAdd(t, -(n - 1));
+  for (let x = d0; x <= t; x = dAdd(x, 1)) await weekOf(x);
+  const L = ['AllinA · отчёт ' + dmy(d0) + '–' + dmy(t) + ' · v' + APP_V,
+    'Цели: ' + CFG.kcal + ' ккал при ' + fmtN(CFG.stepsBase) + ' шагах (+' + CFG.perK + ' за 1000), Б ' + CFG.p + ' · Ж ' + CFG.f + ' · поддержка ' + CFG.tdee + (CFG.eatGoal ? ' · «ем ровно в цель» с ' + dmy(CFG.eatGoalFrom || t) : ''),
+    '', 'дата · вес · ккал/цель · Б/Ж/У · шаги · тренировка'];
+  let ek = 0, et = 0, en = 0, sSum = 0, sN = 0, skip = 0;
+  for (let d = d0; d <= t; d = dAdd(d, 1)) {
+    const w = WT.find(x => x[0] === d), rows = dayRows(d), tg = target(d), sv = stepsOf(d), tm = tmSteps(d), lg = (typeof LOG !== 'undefined' && LOG[d]) || null;
+    if (!w && !rows.length && sv == null && !lg && eatenOf(d) == null) { skip++; continue; }
+    let food = 'еда —', mac = '';
+    if (rows.length) { const r = sumRows(rows); food = Math.round(r.k) + '/' + tg.kcal + (rows.some(x => x.tot) ? ' (итог дня)' : ''); mac = Math.round(r.p) + '/' + Math.round(r.f) + '/' + Math.round(r.c); ek += r.k; et += tg.kcal; en++; }
+    else if (eatenOf(d) != null) food = '≈' + tg.kcal + ' (в цель, не записано)';
+    const tr = [];
+    if (lg) {
+      if (lg.ex && lg.ex.length) tr.push('💪 ' + (lg.tpl || 'силовая') + (lg.day ? ' ' + lg.day : '') + (lg.min ? ' ' + lg.min + ' мин' : '') + (lg.rpe ? ' RPE ' + lg.rpe : '') + (lg.lite ? ' лёгкая' : ''));
+      (lg.cardio || []).forEach(c => tr.push('🏃 ' + [c.min ? c.min + ' мин' : '', c.dist ? String(c.dist).replace('.', ',') + ' км' : '', c.kcal ? c.kcal + ' ккал' : ''].filter(Boolean).join(' ')));
+    }
+    if (sv != null) { sSum += sv; sN++; }
+    L.push([d.slice(8) + '.' + d.slice(5, 7) + ' ' + WD2[new Date(d + 'T12:00:00').getDay()], w ? n2(w[1]) + ' кг' : 'вес —', food, mac,
+      sv != null ? fmtN(sv) + (tm ? ' (дор. ' + fmtN(tm) + ')' : '') + ' ш' : 'шаги —', tr.join(' + ')].filter(Boolean).join(' · '));
+  }
+  const wIn = WT.filter(x => x[0] >= d0 && x[0] <= t).sort((a, b) => a[0] < b[0] ? -1 : 1);
+  if (skip) L.push('(пустых дней без записей: ' + skip + ')');
+  L.push('', 'Итого:');
+  if (wIn.length) L.push('вес ' + n2(wIn[0][1]) + ' (' + dmy(wIn[0][0]) + ') → ' + n2(wIn[wIn.length - 1][1]) + ' (' + dmy(wIn[wIn.length - 1][0]) + '), среднее 7 дн сейчас ' + n2(avg7(t) != null ? avg7(t) : wIn[wIn.length - 1][1]) + (avg7(dAdd(t, -7)) != null ? ', неделю назад ' + n2(avg7(dAdd(t, -7))) : ''));
+  if (en) L.push('еда записана ' + en + ' дн из ' + n + ': в среднем ' + fmtN(ek / en) + ' ккал при цели ' + fmtN(et / en));
+  if (sN) L.push('шаги в среднем ' + fmtN(sSum / sN) + ' (' + sN + ' дн)');
+  const mm = MEASA.filter(x => x[0] >= dAdd(d0, -14) && x[0] <= t).sort((a, b) => a[0] < b[0] ? -1 : 1);
+  if (mm.length) L.push('замеры: ' + mm.map(x => dmy(x[0]) + ' талия ' + (x[1] != null ? n1(x[1]) : '—') + ' / бёдра ' + (x[2] != null ? n1(x[2]) : '—')).join('; '));
+  return L.join('\n');
+}
 function renderBody() {
   const bt = bTab(); $('tabs').style.gridTemplateColumns = ''; $('tabs').innerHTML = BTABS.map(([k, l]) => '<button data-bt="' + k + '" class="' + (k === bt ? 'on' : '') + '">' + l + '</button>').join('');
   const t = today(); if (!wDay) wDay = t; if (!sDay) sDay = t;
@@ -1094,6 +1128,8 @@ function renderBody() {
     + (wk.n ? '<div class="row" style="margin-top:8px"><span>Неделя с ' + esc(dmy(monOf(t))) + '</span><b class="' + (wk.def >= 0 ? 'ok' : 'bad') + '">' + (wk.def >= 0 ? 'дефицит ' : 'профицит ') + fmtN(Math.abs(wk.def)) + ' ккал</b></div>' : '') + '</div>';
   const ph = ST[sDay], tm = tmSteps(sDay), sv = stepsOf(sDay), base = CFG.stepsBase, avgN = n => { const v = []; for (let i = 0; i < n; i++) { const x = stepsOf(dAdd(t, -i)); if (x != null) v.push(x); } return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null; };
   const a7 = avgN(7), a30 = avgN(30);
+  h += '<div class="card" data-bc="w"><h2>📤 Отчёт за период</h2><div class="sub">Вес, еда, шаги и тренировки по дням — одним текстом. Нажми, текст скопируется — вставь его в чат.</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:8px">' + [7, 14, 28].map(n => '<button class="pri" data-bx="rep" data-a="' + n + '">' + n + ' дней</button>').join('') + '</div><div id="repbox"></div></div>';
   h += '<div class="card" data-bc="s"><h2>👟 Шаги · 30 дней</h2>' + dnav2('s', sDay, 'база ' + fmtN(base), sDay < t)
     + '<div class="g2"><input id="b-s" inputmode="numeric" placeholder="шаги с телефона" value="' + (ph != null ? ph : '') + '"><button class="pri" data-bx="ssave">' + (ph != null ? 'Исправить' : 'Записать') + '</button></div>'
     + (tm ? '<div class="sub" style="margin-top:6px">📱 телефон ' + (ph != null ? fmtN(ph) : '—') + ' + 🏃 дорожка ' + fmtN(tm) + ' = <b>' + fmtN(sv) + '</b>. Дорожка прибавляется сама — в поле вписывай только то, что показывает телефон.</div>' : '')
@@ -1116,6 +1152,9 @@ document.addEventListener('click', async e => {
   if (d.bx === 'wstep') { const ws = wSorted().map(x => x[0]), dir = +d.a; let nd = dAdd(wDay, dir);
     if (ws.length) { const nx = dir < 0 ? ws.filter(x => x < wDay).pop() : ws.find(x => x > wDay); nd = nx || (dir > 0 ? (wDay < t ? t : wDay) : dAdd(wDay, -1)); }
     if (nd > t) return; wDay = nd; renderBody(); hap(); return; }
+  if (d.bx === 'rep') { const txt = await reportTxt(+d.a); let ok = false; try { await navigator.clipboard.writeText(txt); ok = true; } catch (er) {}
+    $('repbox').innerHTML = '<div class="sub" style="margin-top:8px">' + (ok ? 'Скопировано ✓ Вставь в чат. Текст ниже — на всякий случай.' : 'Скопируй вручную: зажми текст → Выделить всё → Копировать.') + '</div><textarea readonly style="width:100%;min-height:220px;margin-top:6px;font-size:12px">' + esc(txt) + '</textarea>';
+    hap('ok'); if (ok) toast('Отчёт за ' + d.a + ' дн скопирован'); return; }
   if (d.bx === 'sstep') { const nd = dAdd(sDay, +d.a); if (nd > t) return; sDay = nd; renderBody(); hap(); return; }
   if (d.bx === 'wpick') { wDay = d.a; renderBody(); hap(); return; }
   if (d.bx === 'spick') { sDay = d.a; renderBody(); hap(); return; }
