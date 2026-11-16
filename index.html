@@ -218,7 +218,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 /* ================= хранилище: облако Telegram (≤4096 символов на ключ), иначе память браузера ================= */
 const TG = window.Telegram && window.Telegram.WebApp;
-const APP_V = '16.11a';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
+const APP_V = '16.11c';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
 const CS = TG && TG.CloudStorage && TG.isVersionAtLeast && TG.isVersionAtLeast('6.9') ? TG.CloudStorage : null;
 const PART = 4000;
 const K_EX='exlib', K_TPL='tpls', K_DAYS='days', K_DRAFT='draft3';   // ключи v3 (старые ex/tpl/idx/cur от v1–v2 не трогаем)
@@ -980,14 +980,15 @@ const stem = w => w.length >= 6 ? w.slice(0, -2) : w.length >= 4 ? w.slice(0, -1
 function searchList(q) {
   const all = norm(q).split(' ').filter(Boolean), sw = all.filter(w => !STOPW.has(w)), words = (sw.length ? sw : all).map(stem);
   const hit = x => { const t = norm(x.n + ' ' + (x.b || '')); return words.every(w => t.includes(w)); };
-  const mine = PRODS.filter(x => !words.length || hit(x)).sort((a, b) => (b.cnt || 0) - (a.cnt || 0)).slice(0, words.length ? 30 : 40);
+  const recent = words.length ? [] : PRODS.filter(x => x.ts).sort((a, b) => b.ts - a.ts).slice(0, 4);  // 16.11c: «🕘 Недавние» (просьба Данича msg 7489)
+  const mine = PRODS.filter(x => (!words.length || hit(x)) && !recent.includes(x)).sort((a, b) => (b.cnt || 0) - (a.cnt || 0)).slice(0, words.length ? 30 : 40);
   const sc = x => (norm(x.n).startsWith(words[0]) ? 0 : 2) + (x.b === 'USDA' ? 0 : 1) + x.n.length / 1000;  // сначала «гречка…», базовые USDA выше брендов
   let base = words.length && BASE ? BASE.filter(hit).sort((a, b) => sc(a) - sc(b)).slice(0, 50) : [];
   if (words.length > 1 && BASE && !base.length && !mine.length) {  // точного нет — показать, где совпало больше слов
     const nh = x => { const t = norm(x.n + ' ' + (x.b || '')); return words.filter(w => t.includes(w)).length; };
     base = BASE.map(x => [x, nh(x)]).filter(a => a[1] > 0).sort((a, b) => b[1] - a[1] || sc(a[0]) - sc(b[0])).slice(0, 30).map(a => a[0]); }
   const rec = (SH && SH.purpose === 'ing') ? [] : RECS.filter(r => !words.length || norm(r.n).includes(words.join(' '))).map(recItem);
-  return {mine, base, rec};
+  return {mine, base, rec, recent};
 }
 /* ---------- рендер «Еда» ---------- */
 function bar(v, t, cls) { const p = t ? Math.min(100, v / t * 100) : 0; return '<div class="fbar"><i class="' + (v > t ? 'over' : cls || '') + '" style="width:' + p.toFixed(1) + '%"></i></div>'; }
@@ -1111,6 +1112,37 @@ async function reportTxt(n) {
   if (mm.length) L.push('замеры: ' + mm.map(x => dmy(x[0]) + ' талия ' + (x[1] != null ? n1(x[1]) : '—') + ' / бёдра ' + (x[2] != null ? n1(x[2]) : '—')).join('; '));
   return L.join('\n');
 }
+// 16.11b: «📉 Стратегия» на вкладке 🎯 Цели (просьба Данича msg 7482): почему такие цели и как проверяем — простыми словами,
+// цифры из CFG, так что при смене целей карточка пересчитывается сама. Дефицит «ровно в цель» = поддержка − цель (шаги прибавляются к обоим).
+function stratCardA() {
+  const t = today(), tg = target(t), dd = (CFG.tdee || 0) - (CFG.kcal || 0), wk = dd * 7, kg = Math.abs(wk / 7700);
+  const w = (wSorted().slice(-1)[0] || [])[1], pk = w ? (CFG.p / w) : null, fk = w ? (CFG.f / w) : null;
+  const ex = n => CFG.kcal + Math.round((n - CFG.stepsBase) / 1000 * CFG.perK / 10) * 10;
+  const UL = a => '<ul style="margin:4px 0 0;padding-left:18px;line-height:1.45">' + a.map(x => '<li>' + x + '</li>').join('') + '</ul>';
+  const H = x => '<div style="margin-top:12px"><b>' + x + '</b></div>';
+  return '<div class="card" data-bc="g"><h2>📉 Стратегия</h2>'
+    + '<div class="sub">Коротко: худеем медленно и без голодовки — небольшой дефицит, много белка, силовые держат мышцы. Шаги дают право на еду: цель растёт вместе с ними.</div>'
+    + H('Сколько ты тратишь и сколько ешь')
+    + UL(['Поддержка (столько тратишь при ' + fmtN(CFG.stepsBase) + ' шагах): <b>≈' + fmtN(CFG.tdee) + ' ккал</b>. Цель: <b>' + fmtN(CFG.kcal) + '</b>.',
+      'Каждые 1000 шагов сверх ' + fmtN(CFG.stepsBase) + ' — <b>+' + CFG.perK + ' ккал</b> и к расходу, и к цели. Например, при 10 000 шагов цель ≈' + fmtN(ex(10000)) + ', при 15 000 — ≈' + fmtN(ex(15000)) + '. Кардио на дорожке добавляется по карточке.',
+      dd > 0 ? 'Если есть ровно в цель, дефицит <b>≈' + fmtN(dd) + ' ккал в день</b> при любых шагах, это ≈' + fmtN(wk) + ' за неделю ≈ <b>' + n2(kg) + ' кг жира</b>.' : 'Сейчас цель не ниже поддержки — это режим удержания веса, не похудения.',
+      'Сегодня цель с шагами: <b>' + tg.kcal + ' ккал</b> · Б ' + tg.p + ' · Ж ' + tg.f + ' · У ' + tg.c + '.'])
+    + H('Почему медленно')
+    + UL(['Дефицит небольшой, чтобы голод был терпимым и уходил жир, а не мышцы: при силовых и белке тело сохраняет мышцы, а при резком урезании их теряет первыми.',
+      'Есть <b>ниже</b> цели в дни с дорожкой не нужно: дефицит от этого растёт, а с ним и голод. Цель уже посчитана с учётом шагов.'])
+    + H('Почему такие белки и жиры')
+    + UL(['Белок <b>' + CFG.p + ' г</b>' + (pk ? ' (≈' + n1(pk) + ' г на кг веса)' : '') + ': держит мышцы на дефиците и дольше всех даёт сытость. Удобно по 25–35 г в каждый приём.',
+      'Жиры <b>' + CFG.f + ' г</b>' + (fk ? ' (≈' + n1(fk) + ' г/кг)' : '') + ': ниже не опускать — нужны гормонам и циклу.',
+      'Углеводы — остаток: энергия для тренировок и прогулок.'])
+    + H('Как понять, что работает')
+    + UL(['Смотрим только <b>среднее за 7 дней</b>. Вес одного утра прыгает на 0,5–1,5 кг от воды, соли, цикла и тренировок.',
+      'Новые нагрузки (дорожка, больше шагов, новая силовая) задерживают воду в мышцах на 1–2 недели — вес может подрасти, и это не жир.',
+      'Раз в 2 недели сравниваем средние: падает на 0,1–0,3 кг в неделю — ничего не трогаем; стоит 2–3 недели при той же талии — урезаем на 100–150 ккал.',
+      'Талию и бёдра — раз в неделю, в одинаковых условиях.'])
+    + H('Если очень хочется есть')
+    + UL(['Белок в каждом приёме и на завтрак обязательно.', 'Объёмная еда: супы, овощи, ягоды, фрукты — много еды за мало калорий.', 'Сладкое — одна вкусняшка в день, заранее вписанная в план.', 'Сон 7–8 часов: недосып сильно разгоняет аппетит.', 'Один срыв ничего не ломает: +500 ккал съедают пару дней дефицита. Просто дальше по плану.'])
+    + '<div class="sub" style="margin-top:12px">Основано на: Morton 2018 (белок и мышцы), Leidy 2015 (белок и сытость), Helms 2014 и Garthe 2011 (медленное похудение сохраняет мышцы), Spiegel 2004 (сон и голод). Цифры карточки берутся из «Целей» выше — поменяешь цели, пересчитается сама.</div></div>';
+}
 function renderBody() {
   const bt = bTab(); $('tabs').style.gridTemplateColumns = ''; $('tabs').innerHTML = BTABS.map(([k, l]) => '<button data-bt="' + k + '" class="' + (k === bt ? 'on' : '') + '">' + l + '</button>').join('');
   const t = today(); if (!wDay) wDay = t; if (!sDay) sDay = t;
@@ -1142,7 +1174,7 @@ function renderBody() {
     + [['kcal', 'Калории в день', 'ккал'], ['p', 'Белок', 'г'], ['f', 'Жиры', 'г'], ['tdee', 'Поддержка (для дефицита недели)', 'ккал'], ['stepsBase', 'Обычные шаги в день', 'шагов'], ['perK', 'Ккал на 1000 шагов', 'ккал'], ['tol', 'Допуск серии сверх цели', 'ккал'], ['height', 'Рост (для шагов на дорожке)', 'см']]
       .map(([k, l, u]) => '<label class="lbl">' + l + ', ' + u + '</label><input data-cfg="' + k + '" inputmode="numeric" value="' + CFG[k] + '">').join('')
     + '<div class="sub" style="margin-top:6px">Углеводы сейчас: ' + target(t).c + ' г</div><button class="pri big" data-fx="cfgsave">Сохранить цели</button></div>';
-  h += measCardA() + recompCardA();
+  h += stratCardA() + measCardA() + recompCardA();
   $('app').innerHTML = h;
   document.querySelectorAll('#app [data-bc]').forEach(c => { c.style.display = c.dataset.bc === bt ? '' : 'none'; });
 }
@@ -1256,13 +1288,13 @@ function renderSheet() {
     return;
   }
   if (s.mode === 'search') {
-    const {mine, base, rec} = searchList(s.q || ''), isCode = /^\d{8,14}$/.test((s.q || '').trim());
+    const {mine, base, rec, recent} = searchList(s.q || ''), isCode = /^\d{8,14}$/.test((s.q || '').trim());
     const li = (x, k) => '<button class="fr" data-sx="pick" data-k="' + k + '" data-a="' + esc(x.id) + '"><span>' + esc(x.n) + (x.b ? '<small> · ' + esc(x.b) + '</small>' : '') + '<small class="sub"><br>' + Math.round(x.k) + ' ккал · Б' + n1(x.p) + ' Ж' + n1(x.f) + ' У' + n1(x.c) + ' / 100 г</small></span>' + (x.last ? '<span class="sub">' + n1(x.last) + ' г</span>' : '') + '</button>';
     el.innerHTML = '<div class="row"><h3 style="margin:0">' + (s.purpose === 'ing' ? 'Ингредиент в рецепт' : esc(mealName(s.meal)) + ' · ' + esc(dmy(fDay))) + '</h3><button class="ghost" data-sx="close">✕</button></div>'
       + '<div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:8px"><input id="s-q" placeholder="поиск: гречка, творог, snickers…" value="' + esc(s.q || '') + '" autocomplete="off"><button data-sx="scan" title="штрих-код">📷</button></div>'
       + (s.msg ? '<div class="phint ' + (s.msgc || '') + '">' + s.msg + '</div>' : '')
       + (isCode ? '<button class="big" data-sx="code">🏷 Найти по штрих-коду ' + esc(s.q.trim()) + '</button>' : '')
-      + '<div id="s-res">' + (rec.length ? '<div class="sub" style="margin:8px 0 2px">Рецепты</div>' + rec.map(x => li(x, 'rec')).join('') : '') + (mine.length ? '<div class="sub" style="margin:8px 0 2px">Мои продукты</div>' + mine.map(x => li(x, 'mine')).join('') : '')
+      + '<div id="s-res">' + (rec.length ? '<div class="sub" style="margin:8px 0 2px">Рецепты</div>' + rec.map(x => li(x, 'rec')).join('') : '') + (recent.length ? '<div class="sub" style="margin:8px 0 2px">🕘 Недавние</div>' + recent.map(x => li(x, 'mine')).join('') : '') + (mine.length ? '<div class="sub" style="margin:8px 0 2px">' + (recent.length ? 'Частые' : 'Мои продукты') + '</div>' + mine.map(x => li(x, 'mine')).join('') : '')
       + (s.q && !BASE ? '<div class="sub" style="margin-top:8px">Загружаю базу…</div>' : '')
       + (base.length ? '<div class="sub" style="margin:8px 0 2px">База</div>' + base.map(x => li(x, 'base')).join('') : (s.q && BASE && !mine.length && !isCode ? '<div class="sub" style="margin-top:8px">Ничего не нашлось. Попробуй короче или добавь свой.</div>' : ''))
       + '</div><button class="big" data-sx="new">＋ Свой продукт с этикетки</button>';
@@ -1275,6 +1307,7 @@ function renderSheet() {
       + '<div class="sub">' + (x.b ? esc(x.b) + ' · ' : '') + Math.round(x.k) + ' ккал · Б' + n1(x.p) + ' Ж' + n1(x.f) + ' У' + n1(x.c) + ' на 100 г' + (x.src === 'base' && x.code ? ' · данные Open Food Facts — сверь с упаковкой' : '') + '</div>'
       + '<label class="lbl">' + (x.src === 'recipe' ? 'Граммы готового блюда' : 'Граммы') + '</label><input id="s-g" inputmode="decimal" value="' + esc(n1(g)) + '">'
       + '<div class="smb">' + quick.map(v => '<button data-sx="g" data-a="' + v + '">' + v + (v === Math.round(x.last || 0) ? ' · как в прошлый' : v === Math.round(x.g || 0) ? ' · порция' : '') + '</button>').join('') + '</div>'
+      + '<div class="smb">' + [10, 30, 50, 100].map(v => '<button data-sx="gplus" data-a="' + v + '">+' + v + '</button>').join('') + '</div>'
       + '<div class="calc" id="s-calc">' + calcLine(x, g) + '</div>'
       + (s.mode === 'grams' && s.purpose === 'ing' ? '<div class="sub">Вес — в сыром виде, как кладёшь в кастрюлю.</div><button class="pri big" data-sx="toRec">В рецепт</button><button class="big" data-sx="back">‹ К поиску</button>'
         : s.mode === 'grams' ? '<label class="lbl">Приём пищи</label><div class="seg s4">' + MEALS.map(([m, l]) => '<button data-sx="meal" data-a="' + m + '" class="' + (s.meal === m ? 'on' : '') + '">' + l + '</button>').join('') + '</div>'
@@ -1330,9 +1363,11 @@ async function addEntry() {
   let p;
   if (x.src === 'recipe') { p = x; const r = RECS.find(y => y.id === x.rid); if (r) { r.last = g; await setJ('recipes', RECS); } }
   else { p = prodFrom(x); p.cnt = (p.cnt || 0) + 1; p.last = g; p.ts = Date.now(); }
-  const rows = dayRows(fDay).slice(); rows.push({id: uid(), m: SH.meal || 'b', pid: p.id, n: p.n, g, k: r1(p.k * g / 100), p: r1(p.p * g / 100), f: r1(p.f * g / 100), c: r1(p.c * g / 100), fib: r1((p.fib || 0) * g / 100)});
+  const rows = dayRows(fDay).slice(), m = SH.meal || 'b', j = rows.findIndex(r => !r.tot && r.pid === p.id && r.m === m); let G = null;
+  if (j >= 0) { const o = rows[j]; G = r1(o.g + g); const k = G / o.g; rows[j] = Object.assign({}, o, {g: G, k: r1(o.k * k), p: r1(o.p * k), f: r1(o.f * k), c: r1(o.c * k), fib: r1((o.fib || 0) * k)}); }
+  else rows.push({id: uid(), m, pid: p.id, n: p.n, g, k: r1(p.k * g / 100), p: r1(p.p * g / 100), f: r1(p.f * g / 100), c: r1(p.c * g / 100), fib: r1((p.fib || 0) * g / 100)});
   try { await saveDay(fDay, rows); await setJ('prods', PRODS); } catch (e) { return toast('Не сохранилось: ' + (e && e.message || e)); }
-  hap('ok'); sheetClose(); render(); toast('＋ ' + p.n + ' · ' + n1(g) + ' г');
+  hap('ok'); sheetClose(); render(); toast(G != null ? '＋ ' + n1(g) + ' г к «' + p.n + '» — теперь ' + n1(G) + ' г' : '＋ ' + p.n + ' · ' + n1(g) + ' г');
 }
 document.addEventListener('click', async e => {
   const b = e.target.closest('[data-fx],[data-sx],[data-fv]'); if (!b) return; const d = b.dataset;
@@ -1353,6 +1388,7 @@ document.addEventListener('click', async e => {
   if (d.sx === 'code') { await byCode(SH.q.trim()); return; }
   if (d.sx === 'new') { SH.mode = 'new'; SH.item = {n: SH.q && !/^\d+$/.test(SH.q) ? SH.q : ''}; renderSheet(); return; }
   if (d.sx === 'pick') { const x = d.k === 'mine' ? PRODS.find(y => y.id === d.a) : d.k === 'rec' ? (r => r && recItem(r))(RECS.find(r => 'r' + r.id === d.a)) : (BASE || []).find(y => y.id === d.a); if (!x) return; SH.mode = 'grams'; SH.item = x; SH.g = null; renderSheet(); hap(); return; }
+  if (d.sx === 'gplus') { const i = $('s-g'), v = Math.min(5000, r1((rnum(i.value) || 0) + +d.a)); i.value = n1(v); $('s-calc').innerHTML = calcLine(SH.item, v); hap(); return; }
   if (d.sx === 'g') { $('s-g').value = d.a; $('s-calc').innerHTML = calcLine(SH.item, d.a); hap(); return; }
   if (d.sx === 'meal') { SH.meal = d.a; SH.g = rnum($('s-g').value); renderSheet(); return; }
   if (d.sx === 'back') { SH.mode = 'search'; renderSheet(); return; }
