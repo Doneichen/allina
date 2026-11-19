@@ -196,6 +196,7 @@ textarea{min-height:70px;resize:vertical}
 .ldi.ldi-spin{border:2px solid var(--line);border-top-color:var(--acc);border-radius:50%;animation:ldi .8s linear infinite}
 .ldi.ldi-ok::before{content:'';display:block;width:4px;height:8px;margin:0 auto;border:solid var(--ok);border-width:0 2px 2px 0;transform:translateY(-1px) rotate(45deg)}.ldi.ldi-err{border-radius:50%;background:var(--warn);color:#fff;font-weight:800;font-size:9px;line-height:11px}.ldi.ldi-err::before{content:'!'}
 @keyframes ldi{to{transform:rotate(360deg)}}
+@media(min-width:900px){header,main{max-width:1100px;margin:0 auto}header{padding-top:calc(12px + var(--tg-content-safe-area-inset-top,0px))}main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 14px;align-items:start}main>*{min-width:0}main>:not(.card){grid-column:1/-1}main:not(:has(>.card:not([hidden]):not([style*=none])~.card:not([hidden]):not([style*=none])))>.card{grid-column:1/-1}.sheet-in{max-width:640px;margin:0 auto}}
 </style>
 </head>
 <body>
@@ -218,7 +219,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 /* ================= хранилище: облако Telegram (≤4096 символов на ключ), иначе память браузера ================= */
 const TG = window.Telegram && window.Telegram.WebApp;
-const APP_V = '16.11c';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
+const APP_V = '19.11c';  // версия файла — видно в шапке, чтобы отличать кэш от свежей
 const CS = TG && TG.CloudStorage && TG.isVersionAtLeast && TG.isVersionAtLeast('6.9') ? TG.CloudStorage : null;
 const PART = 4000;
 const K_EX='exlib', K_TPL='tpls', K_DAYS='days', K_DRAFT='draft3';   // ключи v3 (старые ex/tpl/idx/cur от v1–v2 не трогаем)
@@ -1929,7 +1930,7 @@ $('nav').onclick=e=>{ const b=e.target.closest('button[data-tab]'); if(!b) retur
 
 /* ================= старт ================= */
 (async()=>{
-  try{ TG && TG.ready(); TG && TG.expand(); }catch(e){}
+  try{ TG && TG.ready(); TG && TG.expand(); TG && /^(tdesktop|macos)$/.test(TG.platform) && TG.requestFullscreen && TG.isVersionAtLeast('8.0') && TG.requestFullscreen(); }catch(e){}
   try{ await load(); }catch(e){ LDN=0; ldi('err','не загрузилось'); $('app').innerHTML='<div class="card">Не удалось загрузить данные: '+esc(e&&e.message||e)+'</div>'; return; }
   try{ const cl=(await rawGet(['cardio_live'])).cardio_live; const o=cl?JSON.parse(cl):null, loc=cdGet();
     if(o && o.phase && (o.ts||0)>(loc.ts||0)){ pref.set('cardio',cl);
